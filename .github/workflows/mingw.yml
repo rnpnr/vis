@@ -1,0 +1,46 @@
+name: msys2
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      CFLAGS_EXTRA: --coverage
+      LDFLAGS_EXTRA: --coverage
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: msys2/setup-msys2@v2
+      with:
+        msystem: msys
+        update: true
+        install: >-
+          base-devel
+          gcc
+          git
+          libtool
+          make
+          msys2-runtime-devel
+          ncurses-devel
+          pkgconf
+
+    - name: Build vis
+      run: make local
+
+    - name: Test
+      run: make test
+
+    - name: Upload Test Coverage
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      run: |
+        curl -s https://codecov.io/bash > codecov
+        curl -s https://raw.githubusercontent.com/codecov/codecov-bash/master/SHA256SUM > codecov.sha256
+        if ! sha256sum -c --ignore-missing --status codecov.sha256 ; then
+          echo "Download checksum verification failed"
+          exit 1
+        fi
+        bash < codecov

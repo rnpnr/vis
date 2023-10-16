@@ -4,19 +4,19 @@ on: [push, pull_request]
 
 jobs:
   build:
+    runs-on: windows-latest
     strategy:
       matrix:
-        os:
-          - windows-2022 # latest
-          - windows-2019
         config:
           - ""
           - --disable-lua
           - --disable-help
-    runs-on: ${{ matrix.os }}
     env:
       CFLAGS_EXTRA: --coverage
       LDFLAGS_EXTRA: --coverage
+    defaults:
+      run:
+        shell: bash
     steps:
 
     - name: Dependency
@@ -25,35 +25,21 @@ jobs:
         choco install --no-progress --yes --force --source=cygwin lua,lua-devel,lua-lpeg,libncurses-devel
 
     - name: Setup $PATH
-      shell: bash
       run: echo 'C:\tools\cygwin\bin' >> $GITHUB_PATH
 
-    - name: Git configuration
-      run: |
-        git config --global core.autocrlf input
-        git config --global core.symlinks true
-
     - name: Checkout
-      uses: actions/checkout@v2
-
-    - name: Cygwin git configuration
-      shell: bash
-      run: mkdir $HOME && git config --global core.autocrlf input
+      uses: actions/checkout@v4
 
     - name: Libtermkey
-      shell: bash
       run: make dependency/build/libtermkey-install
 
     - name: Build
-      shell: bash
       run: ./configure CFLAGS="-I$(pwd)/dependency/install/usr/include" LDFLAGS="-L$(pwd)/dependency/install/usr/lib" ${{ matrix.config }} && make
 
     - name: Test
-      shell: bash
       run: make test
 
     - name: Upload Test Coverage
-      shell: bash
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
       run: |
