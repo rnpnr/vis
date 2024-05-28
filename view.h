@@ -4,7 +4,6 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#include "ui.h"
 #include "text.h"
 #include "array.h"
 
@@ -81,7 +80,7 @@ typedef struct View {
  * @defgroup view_life
  * @{
  */
-bool view_init(struct Win*, Text*);
+bool view_init(Vis*, Win*, Text*);
 void view_free(View*);
 void view_reload(View*, Text*);
 /**
@@ -156,7 +155,7 @@ Selection *view_selections_new_force(View*, size_t pos);
  * .. warning:: Not applicable for the last existing selection.
  * @endrst
  */
-bool view_selections_dispose(Selection*);
+bool view_selections_dispose(View*, Selection*);
 /**
  * Forcefully dispose an existing selection.
  *
@@ -164,7 +163,7 @@ bool view_selections_dispose(Selection*);
  * marked for destruction. As soon as a new selection is created this one
  * will be disposed.
  */
-bool view_selections_dispose_force(Selection*);
+bool view_selections_dispose_force(View*, Selection*);
 /**
  * Query state of primary selection.
  *
@@ -190,13 +189,13 @@ Array view_selections_get_all(View*);
  * @{
  */
 Selection *view_selections_primary_get(View*);
-void view_selections_primary_set(Selection*);
+void view_selections_primary_set(View*, Selection*);
 /** Get first selection. */
 Selection *view_selections(View*);
 /** Get immediate predecessor of selection. */
-Selection *view_selections_prev(Selection*);
+Selection *view_selections_prev(View*, Selection*);
 /** Get immediate successor of selection. */
-Selection *view_selections_next(Selection*);
+Selection *view_selections_next(View*, Selection*);
 /**
  * Get selection index.
  * @rst
@@ -217,23 +216,23 @@ Selection *view_selections_column(View*, int column);
  * Get the next `column`-th selection on a line.
  * @param column The zero based column index.
  */
-Selection *view_selections_column_next(Selection*, int column);
+Selection *view_selections_column_next(View*, Selection*, int column);
 /**
  * @}
  * @defgroup view_cover
  * @{
  */
 /** Get an inclusive range of the selection cover. */
-Filerange view_selections_get(Selection*);
+Filerange view_selections_get(Text*, Selection*);
 /** Set selection cover. Updates both cursor and anchor. */
-bool view_selections_set(Selection*, const Filerange*);
+bool view_selections_set(View*, Selection*, Filerange);
 /**
  * Reduce selection to character currently covered by the cursor.
  * @rst
  * .. note:: Sets selection to non-anchored mode.
  * @endrst
  */
-void view_selection_clear(Selection*);
+void view_selection_clear(View*, Selection*);
 /** Reduce *all* currently active selections. */
 void view_selections_clear_all(View*);
 /**
@@ -242,16 +241,16 @@ void view_selections_clear_all(View*);
  * .. note:: Has no effect on singleton selections.
  * @endrst
  */
-void view_selections_flip(Selection*);
+void view_selections_flip(View*, Selection*);
 /**
  * @}
  * @defgroup view_props
  * @{
  */
 /** Get position of selection cursor. */
-size_t view_cursors_pos(Selection*);
+size_t view_cursors_pos(View*, Selection*);
 /** Get 1-based line number of selection cursor. */
-size_t view_cursors_line(Selection*);
+size_t view_cursors_line(View*, Selection*);
 /**
  * Get 1-based column of selection cursor.
  * @rst
@@ -259,7 +258,7 @@ size_t view_cursors_line(Selection*);
  *           position.
  * @endrst
  */
-size_t view_cursors_col(Selection*);
+size_t view_cursors_col(View*, Selection*);
 /**
  * @}
  * @defgroup view_place
@@ -279,7 +278,7 @@ size_t view_cursors_col(Selection*);
  *           of the window.
  * @endrst
  */
-void view_cursors_to(Selection*, size_t pos);
+void view_cursors_to(View*, Selection*, size_t pos);
 /**
  * Adjusts window viewport until the requested position becomes visible.
  * @rst
@@ -289,7 +288,7 @@ void view_cursors_to(Selection*, size_t pos);
  *              short distances between current cursor position and destination.
  * @endrst
  */
-void view_cursors_scroll_to(Selection*, size_t pos);
+void view_cursors_scroll_to(View*, Selection*, size_t pos);
 /**
  * Place cursor on given (line, column) pair.
  * @param line the 1-based line number
@@ -299,26 +298,26 @@ void view_cursors_scroll_to(Selection*, size_t pos);
  *           `view_selection_to`.
  * @endrst
  */
-void view_cursors_place(Selection*, size_t line, size_t col);
+void view_cursors_place(View*, Selection*, size_t line, size_t col);
 /**
  * Place selection cursor on zero based window cell index.
  * @rst
  * .. warning:: Fails if the selection cursor is currently not visible.
  * @endrst
  */
-int view_cursors_cell_set(Selection*, int cell);
+int view_cursors_cell_set(View*, Selection*, int cell);
 /**
  * @}
  * @defgroup view_motions
  * @{
  */
-size_t view_line_down(Selection*);
-size_t view_line_up(Selection*);
-size_t view_screenline_down(Selection*);
-size_t view_screenline_up(Selection*);
-size_t view_screenline_begin(Selection*);
-size_t view_screenline_middle(Selection*);
-size_t view_screenline_end(Selection*);
+size_t view_line_down(View*, Selection*);
+size_t view_line_up(View*, Selection*);
+size_t view_screenline_down(View*, Selection*);
+size_t view_screenline_up(View*, Selection*);
+size_t view_screenline_begin(View*, Selection*);
+size_t view_screenline_middle(View*, Selection*);
+size_t view_screenline_end(View*, Selection*);
 /**
  * @}
  * @defgroup view_primary
@@ -338,13 +337,13 @@ bool view_regions_save(View*, Filerange*, SelectionRegion*);
  * @defgroup view_style
  * @{
  */
-void win_options_set(struct Win *, enum UiOption);
+void win_options_set(Vis*, Win*, enum UiOption);
 bool view_breakat_set(View*, const char *breakat);
 
 /** Set how many spaces are used to display a tab `\t` character. */
 void view_tabwidth_set(View*, int tabwidth);
 /** Apply a style to a text range. */
-void win_style(struct Win*, enum UiStyle, size_t start, size_t end);
+void win_style(Ui *ui, Win*, enum UiStyle, size_t start, size_t end);
 
 /** @} */
 

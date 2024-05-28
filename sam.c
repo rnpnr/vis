@@ -1143,6 +1143,7 @@ static bool sam_execute(Vis *vis, Win *win, Command *cmd, Selection *sel, Filera
 	bool ret = true;
 	if (cmd->address && win)
 		*range = address_evaluate(cmd->address, win->file, sel, range, 0);
+	View *view = &win->view;
 
 	cmd->iteration++;
 	switch (cmd->argv[0][0]) {
@@ -1150,7 +1151,7 @@ static bool sam_execute(Vis *vis, Win *win, Command *cmd, Selection *sel, Filera
 	{
 		for (Command *c = cmd->cmd; c && ret; c = c->next)
 			ret &= sam_execute(vis, win, c, NULL, range);
-		view_selections_dispose_force(sel);
+		view_selections_dispose_force(view, sel);
 		break;
 	}
 	default:
@@ -1236,6 +1237,8 @@ enum SamError sam_cmd(Vis *vis, const char *s) {
 	Filerange range = text_range_empty();
 	sam_execute(vis, vis->win, cmd, NULL, &range);
 
+	View *view = vis_view(vis);
+
 	for (File *file = vis->files; file; file = file->next) {
 		if (file->internal)
 			continue;
@@ -1255,9 +1258,9 @@ enum SamError sam_cmd(Vis *vis, const char *s) {
 				delta -= text_range_size(&c->range);
 				if (c->sel && c->type == TRANSCRIPT_DELETE) {
 					if (visual)
-						view_selections_dispose_force(c->sel);
+						view_selections_dispose_force(view, c->sel);
 					else
-						view_cursors_to(c->sel, c->range.start);
+						view_cursors_to(view, c->sel, c->range.start);
 				}
 			}
 			if (c->type & TRANSCRIPT_INSERT) {
@@ -1269,18 +1272,18 @@ enum SamError sam_cmd(Vis *vis, const char *s) {
 				                             c->range.start + c->len * c->count);
 				if (c->sel) {
 					if (visual) {
-						view_selections_set(c->sel, &r);
+						view_selections_set(view, c->sel, r);
 						c->sel->anchored = true;
 					} else {
 						if (memchr(c->data, '\n', c->len))
-							view_cursors_to(c->sel, r.start);
+							view_cursors_to(view, c->sel, r.start);
 						else
-							view_cursors_to(c->sel, r.end);
+							view_cursors_to(view, c->sel, r.end);
 					}
 				} else if (visual) {
 					Selection *sel = view_selections_new(&c->win->view, r.start);
 					if (sel) {
-						view_selections_set(sel, &r);
+						view_selections_set(view, sel, r);
 						sel->anchored = true;
 					}
 				}
@@ -1294,12 +1297,13 @@ enum SamError sam_cmd(Vis *vis, const char *s) {
 		view_selections_normalize(&win->view);
 
 	if (vis->win) {
-		if (primary_pos != EPOS && view_selection_disposed(&vis->win->view))
-			view_cursors_to(vis->win->view.selection, primary_pos);
-		view_selections_primary_set(view_selections(&vis->win->view));
+		View *view = &vis->win->view;
+		if (primary_pos != EPOS && view_selection_disposed(view))
+			view_cursors_to(view, view->selection, primary_pos);
+		view_selections_primary_set(view, view_selections(view));
 		vis_jumplist_save(vis);
 		bool completed = true;
-		for (Selection *s = view_selections(&vis->win->view); s; s = view_selections_next(s)) {
+		for (Selection *s = view_selections(view); s; s = view_selections_next(view, s)) {
 			if (s->anchored) {
 				completed = false;
 				break;
@@ -1401,7 +1405,7 @@ static bool cmd_guard(Vis *vis, Win *win, Command *cmd, const char *argv[], Sele
 		match = captures[0].start < range->end;
 	if ((count_evaluate(cmd) && match) ^ (argv[0][0] == 'v'))
 		return sam_execute(vis, win, cmd->cmd, sel, range);
-	view_selections_dispose_force(sel);
+	view_selections_dispose_force(&win->view, sel);
 	return true;
 }
 
@@ -1488,7 +1492,7 @@ static int extract(Vis *vis, Win *win, Command *cmd, const char *argv[], Selecti
 	}
 
 	if (!simulate)
-		view_selections_dispose_force(sel);
+		view_selections_dispose_force(&win->view, sel);
 	return simulate ? count : ret;
 }
 
@@ -1508,7 +1512,7 @@ static bool cmd_select(Vis *vis, Win *win, Command *cmd, const char *argv[], Sel
 		return sam_execute(vis, NULL, cmd->cmd, NULL, &r);
 	bool ret = true;
 	View *view = &win->view;
-	Text *txt = win->file->text;
+	Text *txt  = view->text;
 	bool multiple_cursors = view->selection_count > 1;
 	Selection *primary = view_selections_primary_get(view);
 
@@ -1516,10 +1520,10 @@ static bool cmd_select(Vis *vis, Win *win, Command *cmd, const char *argv[], Sel
 		count_init(cmd->cmd, view->selection_count + 1);
 
 	for (Selection *s = view_selections(view), *next; s && ret; s = next) {
-		next = view_selections_next(s);
-		size_t pos = view_cursors_pos(s);
+		next = view_selections_next(view, s);
+		size_t pos = view_cursors_pos(view, s);
 		if (vis->mode->visual) {
-			r = view_selections_get(s);
+			r = view_selections_get(txt, s);
 		} else if (cmd->cmd->address) {
 			/* convert a single line range to a goto line motion */
 			if (!multiple_cursors && cmd->cmd->cmddef->func == cmd_print) {
@@ -1558,7 +1562,7 @@ static bool cmd_select(Vis *vis, Win *win, Command *cmd, const char *argv[], Sel
 	}
 
 	if (vis->win && &vis->win->view == view && primary != view_selections_primary_get(view))
-		view_selections_primary_set(view_selections(view));
+		view_selections_primary_set(view, view_selections(view));
 	return ret;
 }
 
@@ -1570,11 +1574,11 @@ static bool cmd_print(Vis *vis, Win *win, Command *cmd, const char *argv[], Sele
 	if (!sel)
 		return false;
 	if (range->start != range->end) {
-		view_selections_set(sel, range);
+		view_selections_set(&win->view, sel, *range);
 		sel->anchored = true;
 	} else {
-		view_cursors_to(sel, range->start);
-		view_selection_clear(sel);
+		view_cursors_to(&win->view, sel, range->start);
+		view_selection_clear(&win->view, sel);
 	}
 	return true;
 }
@@ -1640,8 +1644,9 @@ static bool cmd_write(Vis *vis, Win *win, Command *cmd, const char *argv[], Sele
 
 		bool visual = vis->mode->visual;
 
-		for (Selection *s = view_selections(&win->view); s; s = view_selections_next(s)) {
-			Filerange range = visual ? view_selections_get(s) : *r;
+		View *view = &win->view;
+		for (Selection *s = view_selections(view); s; s = view_selections_next(view, s)) {
+			Filerange range = visual ? view_selections_get(view->text, s) : *r;
 			ssize_t written = text_write_range(text, &range, file->fd);
 			if (written == -1 || (size_t)written != text_range_size(&range)) {
 				vis_info_show(vis, "Can not write to stdout");
@@ -1708,8 +1713,9 @@ static bool cmd_write(Vis *vis, Win *win, Command *cmd, const char *argv[], Sele
 		bool failure = false;
 		bool visual = vis->mode->visual;
 
-		for (Selection *s = view_selections(&win->view); s; s = view_selections_next(s)) {
-			Filerange range = visual ? view_selections_get(s) : *r;
+		View *view = &win->view;
+		for (Selection *s = view_selections(view); s; s = view_selections_next(view, s)) {
+			Filerange range = visual ? view_selections_get(view->text, s) : *r;
 			ssize_t written = text_save_write_range(ctx, &range);
 			failure = (written == -1 || (size_t)written != text_range_size(&range));
 			if (failure) {
@@ -1776,7 +1782,8 @@ static bool cmd_filter(Vis *vis, Win *win, Command *cmd, const char *argv[], Sel
 }
 
 static bool cmd_launch(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	Filerange invalid = text_range_new(sel ? view_cursors_pos(sel) : range->start, EPOS);
+	View *view = vis_view(vis);
+	Filerange invalid = text_range_new(sel ? view_cursors_pos(view, sel) : range->start, EPOS);
 	return cmd_filter(vis, win, cmd, argv, sel, &invalid);
 }
 

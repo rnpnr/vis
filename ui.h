@@ -1,8 +1,8 @@
 #ifndef UI_H
 #define UI_H
 
-#include <stdbool.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <termkey.h>
 
 /* enable large file optimization for files larger than: */
@@ -80,11 +80,10 @@ typedef struct {
 } Cell;
 
 struct Win;
-struct Vis;
 typedef struct {
-	struct Vis *vis;          /* editor instance to which this ui belongs */
 	struct Win *windows;      /* all windows managed by this ui */
 	struct Win *selwin;       /* the currently selected layout */
+	void *ctx;                /* Any additional data needed by the backend */
 	char info[UI_MAX_WIDTH];  /* info message displayed at the bottom of the screen */
 	int width, height;        /* terminal dimensions available for all windows */
 	enum UiLayout layout;     /* whether windows are displayed horizontally or vertically */
@@ -95,12 +94,10 @@ typedef struct {
 	size_t cells_size;        /* #bytes allocated for 2D grid (grows only) */
 	Cell *cells;              /* 2D grid of cells, at least as large as current terminal size */
 	bool doupdate;            /* Whether to update the screen after refreshing contents */
-	void *ctx;                /* Any additional data needed by the backend */
+	bool change_colors;       /* Whether to adjust 256 color palette for true colors */
 } Ui;
 
-#include "view.h"
 #include "vis.h"
-#include "text.h"
 
 bool ui_terminal_init(Ui*);
 int  ui_terminal_colors(void);
@@ -111,27 +108,27 @@ void ui_terminal_save(Ui*, bool fscr);
 void ui_terminal_suspend(Ui*);
 
 __attribute__((noreturn)) void ui_die(Ui *, const char *, va_list);
-bool ui_init(Ui *, Vis *);
+bool ui_init(Ui *);
 void ui_arrange(Ui*, enum UiLayout);
-void ui_draw(Ui*);
-void ui_info_hide(Ui *);
+void ui_draw(Vis *);
+#define UI_INFO_HIDE(ui) (ui).info[0] = 0
 void ui_info_show(Ui *, const char *, va_list);
 void ui_redraw(Ui*);
 void ui_resize(Ui*);
 
-bool ui_window_init(Ui *, Win *, enum UiOption);
-void ui_window_focus(Win *);
+bool ui_window_init(Vis *, Win *, enum UiOption);
+void ui_window_focus(Ui *, Win *);
 /* removes a window from the list of open windows */
 void ui_window_release(Ui *, Win *);
-void ui_window_swap(Win *, Win *);
+void ui_window_swap(Ui *, Win *, Win *);
 
 bool ui_getkey(Ui *, TermKeyKey *);
 
 bool ui_style_define(Win *win, int id, const char *style);
-bool ui_window_style_set_pos(Win *win, int x, int y, enum UiStyle id);
-void ui_window_style_set(Win *win, Cell *cell, enum UiStyle id);
+bool ui_window_style_set_pos(Ui *ui, Win *win, int x, int y, enum UiStyle id);
+void ui_window_style_set(Ui *ui, int window_id, Cell *cell, enum UiStyle style_id);
 
 void ui_window_options_set(Win *win, enum UiOption options);
-void ui_window_status(Win *win, const char *status);
+void ui_window_status(Ui *ui, Win *win, const char *status);
 
 #endif

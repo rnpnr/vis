@@ -1,23 +1,19 @@
-#include <unistd.h>
-#include <stdlib.h>
-#include <string.h>
-#include <strings.h>
-#include <limits.h>
 #include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <locale.h>
 #include <poll.h>
+#include <stdarg.h>
+#include <string.h>
+#include <strings.h>
 #include <sys/ioctl.h>
-#include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
+#include <sys/types.h>
 #include <termios.h>
-#include <errno.h>
+#include <unistd.h>
 
-#include "vis.h"
 #include "vis-core.h"
-#include "text.h"
-#include "util.h"
-#include "text-util.h"
 
 #ifndef DEBUG_UI
 #define DEBUG_UI 0
@@ -202,8 +198,8 @@ static void ui_draw_string(Ui *tui, int x, int y, const char *str, Win *win, enu
 	}
 }
 
-static void ui_window_draw(Win *win) {
-	Ui *ui = &win->vis->ui;
+static void ui_window_draw(Vis *vis, Win *win) {
+	Ui *ui = &vis->ui;
 	View *view = &win->view;
 	const Line *line = win->view.topline;
 
@@ -218,7 +214,7 @@ static void ui_window_draw(Win *win) {
 		view_resize(view, width - sidebar_width, status ? height - 1 : height);
 		win->sidebar_width = sidebar_width;
 	}
-	vis_window_draw(win);
+	vis_window_draw(vis, win);
 
 	Selection *sel = view_selections_primary_get(view);
 	size_t prev_lineno = 0, cursor_lineno = sel->line->lineno;
@@ -254,11 +250,10 @@ static void ui_window_draw(Win *win) {
 	}
 }
 
-void ui_window_style_set(Win *win, Cell *cell, enum UiStyle id) {
-	Ui *tui = &win->vis->ui;
-	CellStyle set, style = tui->styles[win->id * UI_STYLE_MAX + id];
+void ui_window_style_set(Ui *tui, int window_id, Cell *cell, enum UiStyle style_id) {
+	CellStyle set, style = tui->styles[window_id * UI_STYLE_MAX + style_id];
 
-	if (id == UI_STYLE_DEFAULT) {
+	if (style_id == UI_STYLE_DEFAULT) {
 		memcpy(&cell->style, &style, sizeof(CellStyle));
 		return;
 	}
@@ -270,20 +265,18 @@ void ui_window_style_set(Win *win, Cell *cell, enum UiStyle id) {
 	memcpy(&cell->style, &set, sizeof(CellStyle));
 }
 
-bool ui_window_style_set_pos(Win *win, int x, int y, enum UiStyle id) {
-	Ui *tui = &win->vis->ui;
+bool ui_window_style_set_pos(Ui *tui, Win *win, int x, int y, enum UiStyle id) {
 	if (x < 0 || y < 0 || y >= win->height || x >= win->width) {
 		return false;
 	}
 	Cell *cell = CELL_AT_POS(tui, win->x + x, win->y + y)
-	ui_window_style_set(win, cell, id);
+	ui_window_style_set(tui, win->id, cell, id);
 	return true;
 }
 
-void ui_window_status(Win *win, const char *status) {
+void ui_window_status(Ui *ui, Win *win, const char *status) {
 	if (!(win->options & UI_OPTION_STATUSBAR))
 		return;
-	Ui *ui = &win->vis->ui;
 	enum UiStyle style = ui->selwin == win ? UI_STYLE_STATUS_FOCUSED : UI_STYLE_STATUS;
 	ui_draw_string(ui, win->x, win->y + win->height - 1, status, win, style);
 }
@@ -338,14 +331,15 @@ void ui_arrange(Ui *tui, enum UiLayout layout) {
 	}
 }
 
-void ui_draw(Ui *tui) {
+void ui_draw(Vis *vis) {
 	debug("ui-draw\n");
+	Ui *tui = &vis->ui;
 	ui_arrange(tui, tui->layout);
 	for (Win *win = tui->windows; win; win = win->next)
-		ui_window_draw(win);
+		ui_window_draw(vis, win);
 	if (tui->info[0])
 		ui_draw_string(tui, 0, tui->height-1, tui->info, NULL, UI_STYLE_INFO);
-	vis_event_emit(tui->vis, VIS_EVENT_UI_DRAW);
+	vis_event_emit(vis, VIS_EVENT_UI_DRAW);
 	ui_term_backend_blit(tui);
 }
 
@@ -394,10 +388,10 @@ void ui_window_release(Ui *tui, Win *win) {
 	tui->ids &= ~(1UL << win->id);
 }
 
-void ui_window_focus(Win *new) {
-	Win *old = new->vis->ui.selwin;
+void ui_window_focus(Ui *tui, Win *new) {
+	Win *old = tui->selwin;
 	if (new->options & UI_OPTION_STATUSBAR)
-		new->vis->ui.selwin = new;
+		tui->selwin = new;
 	if (old)
 		old->view.need_update = true;
 	new->view.need_update = true;
@@ -417,24 +411,23 @@ void ui_window_options_set(Win *win, enum UiOption options) {
 			last->next = win;
 		}
 	}
-	ui_draw(&win->vis->ui);
 }
 
-void ui_window_swap(Win *a, Win *b) {
+void ui_window_swap(Ui *tui, Win *a, Win *b) {
 	if (a == b || !a || !b)
 		return;
-	Ui *tui = &a->vis->ui;
 	if (tui->windows == a)
 		tui->windows = b;
 	else if (tui->windows == b)
 		tui->windows = a;
 	if (tui->selwin == a)
-		ui_window_focus(b);
+		ui_window_focus(tui, b);
 	else if (tui->selwin == b)
-		ui_window_focus(a);
+		ui_window_focus(tui, a);
 }
 
-bool ui_window_init(Ui *tui, Win *w, enum UiOption options) {
+bool ui_window_init(Vis *vis, Win *w, enum UiOption options) {
+	Ui *tui = &vis->ui;
 	/* get rightmost zero bit, i.e. highest available id */
 	size_t bit = ~tui->ids & (tui->ids + 1);
 	size_t id = 0;
@@ -479,7 +472,7 @@ bool ui_window_init(Ui *tui, Win *w, enum UiOption options) {
 		options &= ~UI_OPTION_LINE_NUMBERS_ABSOLUTE;
 	}
 
-	win_options_set(w, options);
+	win_options_set(vis, w, options);
 
 	return true;
 }
@@ -487,11 +480,6 @@ bool ui_window_init(Ui *tui, Win *w, enum UiOption options) {
 void ui_info_show(Ui *tui, const char *msg, va_list ap) {
 	ui_draw_line(tui, 0, tui->height-1, ' ', UI_STYLE_INFO);
 	vsnprintf(tui->info, sizeof(tui->info), msg, ap);
-}
-
-void ui_info_hide(Ui *tui) {
-	if (tui->info[0])
-		tui->info[0] = '\0';
 }
 
 static TermKey *ui_termkey_new(int fd) {
@@ -550,9 +538,7 @@ void ui_terminal_restore(Ui *tui) {
 	ui_term_backend_restore(tui);
 }
 
-bool ui_init(Ui *tui, Vis *vis) {
-	tui->vis = vis;
-
+bool ui_init(Ui *tui) {
 	setlocale(LC_CTYPE, "");
 
 	char *term = getenv("TERM");
@@ -573,6 +559,7 @@ bool ui_init(Ui *tui, Vis *vis) {
 			goto err;
 	}
 
+	tui->change_colors = true;
 	if (!ui_term_backend_init(tui, term))
 		goto err;
 	ui_resize(tui);

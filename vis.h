@@ -170,19 +170,19 @@ bool vis_window_change_file(Win*, const char *filename);
 /** Check whether closing the window would loose unsaved changes. */
 bool vis_window_closable(Win*);
 /** Close window, redraw user interface. */
-void vis_window_close(Win*);
+void vis_window_close(Vis*, Win*);
 /** Split the window, shares the underlying file object. */
-bool vis_window_split(Win*);
-void vis_window_draw(Win*);
+bool vis_window_split(Vis*, Win*);
+void vis_window_draw(Vis*, Win*);
 void vis_window_invalidate(Win*);
 /** Focus next window. */
 void vis_window_next(Vis*);
 /** Focus previous window. */
 void vis_window_prev(Vis*);
 /** Change currently focused window, receiving user input. */
-void vis_window_focus(Win*);
+void vis_window_focus(Vis*, Win*);
 /** Swap location of two windows. */
-void vis_window_swap(Win*, Win*);
+void vis_window_swap(Vis*, Win*, Win*);
 /**
  * @}
  * @defgroup vis_info
@@ -933,7 +933,6 @@ void vis_file_snapshot(Vis*, File*);
 /** @} */
 
 /* TODO: expose proper API to iterate through files etc */
-Text *vis_text(Vis*);
 View *vis_view(Vis*);
 
 #endif

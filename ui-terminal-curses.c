@@ -79,7 +79,7 @@ static CellColor color_rgb(Ui *ui, uint8_t r, uint8_t g, uint8_t b)
 	static uint32_t clobbering_colors[MAX_COLOR_CLOBBER];
 
 	if (change_colors == -1)
-		change_colors = ui->vis->change_colors && can_change_color() && COLORS >= 256;
+		change_colors = ui->change_colors && can_change_color() && COLORS >= 256;
 	if (change_colors) {
 		uint32_t hexrep = (r << 16) | (g << 8) | b;
 		for (short i = 0; i < MAX_COLOR_CLOBBER; ++i) {

@@ -71,7 +71,7 @@ typedef struct {
 
 typedef struct { /* Motion implementation, takes a cursor position and returns a new one */
 	/* TODO: merge types / use union to save space */
-	size_t (*cur)(Selection*);
+	size_t (*cur)(View*, Selection*);
 	size_t (*txt)(Text*, size_t pos);
 	size_t (*file)(Vis*, File*, Selection*);
 	size_t (*vis)(Vis*, Text*, size_t pos);
@@ -189,7 +189,6 @@ struct Vis {
 	int last_totill;                     /* last to/till movement used for ';' and ',' */
 	int search_direction;                /* used for `n` and `N` */
 	bool autoindent;                     /* whether indentation should be copied from previous line on newline */
-	bool change_colors;                  /* whether to adjust 256 color palette for true colors */
 	char *shell;                         /* shell used to launch external commands */
 	Map *cmds;                           /* ":"-commands, used for unique prefix queries */
 	Map *usercmds;                       /* user registered ":"-commands */
