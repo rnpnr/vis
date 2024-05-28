@@ -1427,7 +1427,7 @@ static int vis_options_assign(Vis *vis, lua_State *L, const char *key, int next)
 	if (strcmp(key, "autoindent") == 0 || strcmp(key, "ai") == 0) {
 		vis->autoindent = lua_toboolean(L, next);
 	} else if (strcmp(key, "changecolors") == 0) {
-		vis->change_colors = lua_toboolean(L, next);
+		vis->ui.change_colors = lua_toboolean(L, next);
 	} else if (strcmp(key, "escdelay") == 0) {
 		termkey_set_waittime(vis->ui.termkey, luaL_checkint(L, next));
 	} else if (strcmp(key, "ignorecase") == 0 || strcmp(key, "ic") == 0) {
@@ -1471,7 +1471,7 @@ static int vis_newindex(lua_State *L) {
 		}
 
 		if (strcmp(key, "win") == 0) {
-			vis_window_focus(obj_ref_check(L, 3, VIS_LUA_TYPE_WINDOW));
+			vis_window_focus(vis, obj_ref_check(L, 3, VIS_LUA_TYPE_WINDOW));
 			return 0;
 		}
 
@@ -1566,7 +1566,7 @@ static int vis_options_index(lua_State *L) {
 			lua_pushboolean(L, vis->autoindent);
 			return 1;
 		} else if (strcmp(key, "changecolors") == 0) {
-			lua_pushboolean(L, vis->change_colors);
+			lua_pushboolean(L, vis->ui.change_colors);
 			return 1;
 		} else if (strcmp(key, "escdelay") == 0) {
 			lua_pushunsigned(L, termkey_get_waittime(vis->ui.termkey));
@@ -1825,6 +1825,7 @@ static int window_index(lua_State *L) {
 }
 
 static int window_options_assign(Win *win, lua_State *L, const char *key, int next) {
+	Vis *vis = win->vis;
 	enum UiOption flags = win->options;
 	if (strcmp(key, "breakat") == 0 || strcmp(key, "brk") == 0) {
 		if (lua_isstring(L, next))
@@ -1836,49 +1837,49 @@ static int window_options_assign(Win *win, lua_State *L, const char *key, int ne
 			flags |= UI_OPTION_CURSOR_LINE;
 		else
 			flags &= ~UI_OPTION_CURSOR_LINE;
-		win_options_set(win, flags);
+		win_options_set(vis, win, flags);
 	} else if (strcmp(key, "numbers") == 0 || strcmp(key, "nu") == 0) {
 		if (lua_toboolean(L, next))
 			flags |= UI_OPTION_LINE_NUMBERS_ABSOLUTE;
 		else
 			flags &= ~UI_OPTION_LINE_NUMBERS_ABSOLUTE;
-		win_options_set(win, flags);
+		win_options_set(vis, win, flags);
 	} else if (strcmp(key, "relativenumbers") == 0 || strcmp(key, "rnu") == 0) {
 		if (lua_toboolean(L, next))
 			flags |= UI_OPTION_LINE_NUMBERS_RELATIVE;
 		else
 			flags &= ~UI_OPTION_LINE_NUMBERS_RELATIVE;
-		win_options_set(win, flags);
+		win_options_set(vis, win, flags);
 	} else if (strcmp(key, "showeof") == 0) {
 		if (lua_toboolean(L, next))
 			flags |= UI_OPTION_SYMBOL_EOF;
 		else
 			flags &= ~UI_OPTION_SYMBOL_EOF;
-		win_options_set(win, flags);
+		win_options_set(vis, win, flags);
 	} else if (strcmp(key, "shownewlines") == 0) {
 		if (lua_toboolean(L, next))
 			flags |= UI_OPTION_SYMBOL_EOL;
 		else
 			flags &= ~UI_OPTION_SYMBOL_EOL;
-		win_options_set(win, flags);
+		win_options_set(vis, win, flags);
 	} else if (strcmp(key, "showspaces") == 0) {
 		if (lua_toboolean(L, next))
 			flags |= UI_OPTION_SYMBOL_SPACE;
 		else
 			flags &= ~UI_OPTION_SYMBOL_SPACE;
-		win_options_set(win, flags);
+		win_options_set(vis, win, flags);
 	} else if (strcmp(key, "showtabs") == 0) {
 		if (lua_toboolean(L, next))
 			flags |= UI_OPTION_SYMBOL_TAB;
 		else
 			flags &= ~UI_OPTION_SYMBOL_TAB;
-		win_options_set(win, flags);
+		win_options_set(vis, win, flags);
 	} else if (strcmp(key, "statusbar") == 0) {
 		if (lua_toboolean(L, next))
 			flags |= UI_OPTION_STATUSBAR;
 		else
 			flags &= ~UI_OPTION_STATUSBAR;
-		win_options_set(win, flags);
+		win_options_set(vis, win, flags);
 	} else if (strcmp(key, "wrapcolumn") == 0 || strcmp(key, "wc") == 0) {
 		win->view.wrapcolumn = luaL_checkunsigned(L, next);
 	} else if (strcmp(key, "tabwidth") == 0 || strcmp(key, "tw") == 0) {
@@ -1924,13 +1925,14 @@ static int window_newindex(lua_State *L) {
 }
 
 static int window_selections_iterator_next(lua_State *L) {
-	Selection **handle = lua_touserdata(L, lua_upvalueindex(1));
-	if (!*handle)
+	Selection **shandle = lua_touserdata(L, lua_upvalueindex(1));
+	View      **vhandle = lua_touserdata(L, lua_upvalueindex(2));
+	if (!*shandle || !*vhandle)
 		return 0;
-	Selection *sel = obj_lightref_new(L, *handle, VIS_LUA_TYPE_SELECTION);
+	Selection *sel = obj_lightref_new(L, *shandle, VIS_LUA_TYPE_SELECTION);
 	if (!sel)
 		return 0;
-	*handle = view_selections_next(sel);
+	*shandle = view_selections_next(*vhandle, sel);
 	return 1;
 }
 
@@ -1941,9 +1943,11 @@ static int window_selections_iterator_next(lua_State *L) {
  */
 static int window_selections_iterator(lua_State *L) {
 	Win *win = obj_ref_check(L, 1, VIS_LUA_TYPE_WINDOW);
-	Selection **handle = lua_newuserdata(L, sizeof *handle);
-	*handle = view_selections(&win->view);
-	lua_pushcclosure(L, window_selections_iterator_next, 1);
+	Selection **shandle = lua_newuserdata(L, sizeof *shandle);
+	View      **vhandle = lua_newuserdata(L, sizeof *vhandle);
+	*shandle = view_selections(&win->view);
+	*vhandle = &win->view;
+	lua_pushcclosure(L, window_selections_iterator_next, 2);
 	return 1;
 }
 
@@ -2008,7 +2012,7 @@ static int window_style(lua_State *L) {
 	enum UiStyle style = luaL_checkunsigned(L, 2);
 	size_t start = checkpos(L, 3);
 	size_t end = checkpos(L, 4);
-	win_style(win, style, start, end);
+	win_style(&win->vis->ui, win, style, start, end);
 	return 0;
 }
 
@@ -2033,7 +2037,7 @@ static int window_style_pos(lua_State *L) {
 	enum UiStyle style = luaL_checkunsigned(L, 2);
 	size_t x = checkpos(L, 3);
 	size_t y = checkpos(L, 4);
-	bool ret = ui_window_style_set_pos(win, (int)x, (int)y, style);
+	bool ret = ui_window_style_set_pos(&win->vis->ui, win, (int)x, (int)y, style);
 	lua_pushboolean(L, ret);
 	return 1;
 }
@@ -2057,7 +2061,7 @@ static int window_status(lua_State *L) {
 	if (spaces < 1)
 		spaces = 1;
 	snprintf(status, sizeof(status)-1, "%s%*s%s", left, spaces, " ", right);
-	ui_window_status(win, status);
+	ui_window_status(&win->vis->ui, win, status);
 	return 0;
 }
 
@@ -2094,7 +2098,7 @@ static int window_close(lua_State *L) {
 	bool force = lua_isboolean(L, 2) && lua_toboolean(L, 2);
 	bool close = count > 1 && (force || vis_window_closable(win));
 	if (close)
-		vis_window_close(win);
+		vis_window_close(win->vis, win);
 	lua_pushboolean(L, close);
 	return 1;
 }
@@ -2204,7 +2208,7 @@ static int window_selections_index(lua_State *L) {
 	size_t count = view->selection_count;
 	if (index == 0 || index > count)
 		goto err;
-	for (Selection *s = view_selections(view); s; s = view_selections_next(s)) {
+	for (Selection *s = view_selections(view); s; s = view_selections_next(view, s)) {
 		if (!--index) {
 			obj_lightref_new(L, s, VIS_LUA_TYPE_SELECTION);
 			return 1;
@@ -2335,17 +2339,17 @@ static int window_selection_index(lua_State *L) {
 	if (lua_isstring(L, 2)) {
 		const char *key = lua_tostring(L, 2);
 		if (strcmp(key, "pos") == 0) {
-			pushpos(L, view_cursors_pos(sel));
+			pushpos(L, view_cursors_pos(sel->view, sel));
 			return 1;
 		}
 
 		if (strcmp(key, "line") == 0) {
-			lua_pushunsigned(L, view_cursors_line(sel));
+			lua_pushunsigned(L, view_cursors_line(sel->view, sel));
 			return 1;
 		}
 
 		if (strcmp(key, "col") == 0) {
-			lua_pushunsigned(L, view_cursors_col(sel));
+			lua_pushunsigned(L, view_cursors_col(sel->view, sel));
 			return 1;
 		}
 
@@ -2355,7 +2359,7 @@ static int window_selection_index(lua_State *L) {
 		}
 
 		if (strcmp(key, "range") == 0) {
-			Filerange range = view_selections_get(sel);
+			Filerange range = view_selections_get(sel->view->text, sel);
 			pushrange(L, &range);
 			return 1;
 		}
@@ -2378,17 +2382,17 @@ static int window_selection_newindex(lua_State *L) {
 		const char *key = lua_tostring(L, 2);
 		if (strcmp(key, "pos") == 0) {
 			size_t pos = checkpos(L, 3);
-			view_cursors_to(sel, pos);
+			view_cursors_to(sel->view, sel, pos);
 			return 0;
 		}
 
 		if (strcmp(key, "range") == 0) {
 			Filerange range = getrange(L, 3);
 			if (text_range_valid(&range)) {
-				view_selections_set(sel, &range);
+				view_selections_set(sel->view, sel, range);
 				sel->anchored = true;
 			} else {
-				view_selection_clear(sel);
+				view_selection_clear(sel->view, sel);
 			}
 			return 0;
 		}
@@ -2412,7 +2416,7 @@ static int window_selection_to(lua_State *L) {
 	if (sel) {
 		size_t line = checkpos(L, 2);
 		size_t col = checkpos(L, 3);
-		view_cursors_place(sel, line, col);
+		view_cursors_place(sel->view, sel, line, col);
 	}
 	return 0;
 }
@@ -2424,7 +2428,7 @@ static int window_selection_to(lua_State *L) {
 static int window_selection_remove(lua_State *L) {
 	Selection *sel = obj_lightref_check(L, 1, VIS_LUA_TYPE_SELECTION);
 	if (sel) {
-		view_selections_dispose(sel);
+		view_selections_dispose(sel->view, sel);
 	}
 	return 0;
 }

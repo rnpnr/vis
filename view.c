@@ -57,9 +57,9 @@ static bool view_viewport_down(View *view, int n);
 static void view_clear(View *view);
 static bool view_add_cell(View *view, const Cell *cell);
 static bool view_addch(View *view, Cell *cell);
-static void selection_free(Selection*);
+static void selection_free(View*, Selection*);
 /* set/move current cursor position to a given (line, column) pair */
-static size_t cursor_set(Selection*, Line *line, int col);
+static size_t cursor_set(View*, Selection*, Line *line, int col);
 
 void window_status_update(Vis *vis, Win *win) {
 	char left_parts[4][255] = { "", "", "", "" };
@@ -114,11 +114,11 @@ void window_status_update(Vis *vis, Win *win) {
 
 	if (!(options & UI_OPTION_LARGE_FILE)) {
 		Selection *sel = view_selections_primary_get(&win->view);
-		size_t line = view_cursors_line(sel);
-		size_t col = view_cursors_col(sel);
+		size_t line = view_cursors_line(&win->view, sel);
+		size_t col = view_cursors_col(&win->view, sel);
 		if (col > UI_LARGE_FILE_LINE_SIZE) {
 			options |= UI_OPTION_LARGE_FILE;
-			win_options_set(win, options);
+			win_options_set(vis, win, options);
 		}
 		snprintf(right_parts[right_count++], sizeof(right_parts[0]),
 		         "%zu, %zu", line, col);
@@ -152,7 +152,7 @@ void window_status_update(Vis *vis, Win *win) {
 		spaces = 1;
 
 	snprintf(status, sizeof(status), "%s%*s%s", left, spaces, " ", right);
-	ui_window_status(win, status);
+	ui_window_status(&vis->ui, win, status);
 }
 
 void view_tabwidth_set(View *view, int tabwidth) {
@@ -205,7 +205,7 @@ static void view_clear(View *view) {
 	/* FIXME: awful garbage that only exists because every
 	 * struct in this program is an interdependent hellscape */
 	Win *win = (Win *)((char *)view - offsetof(Win, view));
-	ui_window_style_set(win, &cell_blank, UI_STYLE_DEFAULT);
+	ui_window_style_set(&win->vis->ui, win->id, &cell_blank, UI_STYLE_DEFAULT);
 }
 
 static int view_max_text_width(const View *view) {
@@ -336,24 +336,24 @@ static bool view_addch(View *view, Cell *cell) {
 	return view_add_cell(view, cell);
 }
 
-static void cursor_to(Selection *s, size_t pos) {
-	Text *txt = s->view->text;
+static void cursor_to(View *view, Selection *s, size_t pos) {
+	Text *txt = view->text;
 	s->cursor = text_mark_set(txt, pos);
 	if (!s->anchored)
 		s->anchor = s->cursor;
 	if (pos != s->pos)
 		s->lastcol = 0;
 	s->pos = pos;
-	if (!view_coord_get(s->view, pos, &s->line, &s->row, &s->col)) {
-		if (s->view->selection == s) {
-			s->line = s->view->topline;
+	if (!view_coord_get(view, pos, &s->line, &s->row, &s->col)) {
+		if (view->selection == s) {
+			s->line = view->topline;
 			s->row = 0;
 			s->col = 0;
 		}
 		return;
 	}
 	// TODO: minimize number of redraws
-	view_draw(s->view);
+	view_draw(view);
 }
 
 bool view_coord_get(View *view, size_t pos, Line **retline, int *retrow, int *retcol) {
@@ -491,7 +491,7 @@ void view_draw(View *view) {
 
 	/* resync position of cursors within visible area */
 	for (Selection *s = view->selections; s; s = s->next) {
-		size_t pos = view_cursors_pos(s);
+		size_t pos = view_cursors_pos(view, s);
 		if (!view_coord_get(view, pos, &s->line, &s->row, &s->col) &&
 		    s == view->selection) {
 			s->line = view->topline;
@@ -549,7 +549,7 @@ void view_free(View *view) {
 	if (!view)
 		return;
 	while (view->selections)
-		selection_free(view->selections);
+		selection_free(view, view->selections);
 	free(view->textbuf);
 	free(view->lines);
 	free(view->breakat);
@@ -558,10 +558,10 @@ void view_free(View *view) {
 void view_reload(View *view, Text *text) {
 	view->text = text;
 	view_selections_clear_all(view);
-	view_cursors_to(view->selection, 0);
+	view_cursors_to(view, view->selection, 0);
 }
 
-bool view_init(Win *win, Text *text) {
+bool view_init(Vis *vis, Win *win, Text *text) {
 	View *view = &win->view;
 	if (!text)
 		return false;
@@ -570,7 +570,7 @@ bool view_init(Win *win, Text *text) {
 	view->tabwidth = 8;
 	view->breakat = strdup("");
 	view->wrapcolumn = 0;
-	win_options_set(win, 0);
+	win_options_set(vis, win, 0);
 
 	if (!view->breakat ||
 	    !view_selections_new(view, 0) ||
@@ -579,13 +579,12 @@ bool view_init(Win *win, Text *text) {
 		return false;
 	}
 
-	view_cursors_to(view->selection, 0);
+	view_cursors_to(view, view->selection, 0);
 	return true;
 }
 
-static size_t cursor_set(Selection *sel, Line *line, int col) {
+static size_t cursor_set(View *view, Selection *sel, Line *line, int col) {
 	int row = 0;
-	View *view = sel->view;
 	size_t pos = view->start;
 	/* get row number and file offset at start of the given line */
 	for (Line *l = view->topline; l && l != line; l = l->next) {
@@ -604,7 +603,7 @@ static size_t cursor_set(Selection *sel, Line *line, int col) {
 	sel->row = row;
 	sel->line = line;
 
-	cursor_to(sel, pos);
+	cursor_to(view, sel, pos);
 
 	return pos;
 }
@@ -657,7 +656,7 @@ void view_redraw_top(View *view) {
 		view->start += cur->len;
 	view_draw(view);
 	/* FIXME: does this logic make sense */
-	view_cursors_to(view->selection, view->selection->pos);
+	view_cursors_to(view, view->selection, view->selection->pos);
 }
 
 void view_redraw_center(View *view) {
@@ -679,25 +678,25 @@ void view_redraw_center(View *view) {
 		break;
 	}
 	view_draw(view);
-	view_cursors_to(view->selection, pos);
+	view_cursors_to(view, view->selection, pos);
 }
 
 void view_redraw_bottom(View *view) {
 	size_t pos = view->selection->pos;
 	view_viewport_up(view, view->height);
 	while (pos >= view->end && view_viewport_down(view, 1));
-	cursor_to(view->selection, pos);
+	cursor_to(view, view->selection, pos);
 }
 
 size_t view_slide_up(View *view, int lines) {
 	Selection *sel = view->selection;
 	if (view_viewport_down(view, lines)) {
 		if (sel->line == view->topline)
-			cursor_set(sel, view->topline, sel->col);
+			cursor_set(view, sel, view->topline, sel->col);
 		else
-			view_cursors_to(view->selection, sel->pos);
+			view_cursors_to(view, view->selection, sel->pos);
 	} else {
-		view_screenline_down(sel);
+		view_screenline_down(view, sel);
 	}
 	return sel->pos;
 }
@@ -708,11 +707,11 @@ size_t view_slide_down(View *view, int lines) {
 	size_t col = sel->col;
 	if (view_viewport_up(view, lines)) {
 		if (lastline)
-			cursor_set(sel, view->lastline, col);
+			cursor_set(view, sel, view->lastline, col);
 		else
-			view_cursors_to(view->selection, sel->pos);
+			view_cursors_to(view, view->selection, sel->pos);
 	} else {
-		view_screenline_up(sel);
+		view_screenline_up(view, sel);
 	}
 	return sel->pos;
 }
@@ -721,9 +720,9 @@ size_t view_scroll_up(View *view, int lines) {
 	Selection *sel = view->selection;
 	if (view_viewport_up(view, lines)) {
 		Line *line = sel->line < view->lastline ? sel->line : view->lastline;
-		cursor_set(sel, line, view->selection->col);
+		cursor_set(view, sel, line, view->selection->col);
 	} else {
-		view_cursors_to(view->selection, 0);
+		view_cursors_to(view, view->selection, 0);
 	}
 	return sel->pos;
 }
@@ -731,28 +730,28 @@ size_t view_scroll_up(View *view, int lines) {
 size_t view_scroll_page_up(View *view) {
 	Selection *sel = view->selection;
 	if (view->start == 0) {
-		view_cursors_to(view->selection, 0);
+		view_cursors_to(view, view->selection, 0);
 	} else {
-		view_cursors_to(view->selection, view->start-1);
+		view_cursors_to(view, view->selection, view->start-1);
 		view_redraw_bottom(view);
-		view_screenline_begin(sel);
+		view_screenline_begin(view, sel);
 	}
 	return sel->pos;
 }
 
 size_t view_scroll_page_down(View *view) {
 	view_scroll_down(view, view->height);
-	return view_screenline_begin(view->selection);
+	return view_screenline_begin(view, view->selection);
 }
 
 size_t view_scroll_halfpage_up(View *view) {
 	Selection *sel = view->selection;
 	if (view->start == 0) {
-		view_cursors_to(view->selection, 0);
+		view_cursors_to(view, view->selection, 0);
 	} else {
-		view_cursors_to(view->selection, view->start-1);
+		view_cursors_to(view, view->selection, view->start-1);
 		view_redraw_center(view);
-		view_screenline_begin(sel);
+		view_screenline_begin(view, sel);
 	}
 	return sel->pos;
 }
@@ -761,7 +760,7 @@ size_t view_scroll_halfpage_down(View *view) {
 	size_t end = view->end;
 	size_t pos = view_scroll_down(view, view->height/2);
 	if (pos < text_size(view->text))
-		view_cursors_to(view->selection, end);
+		view_cursors_to(view, view->selection, end);
 	return view->selection->pos;
 }
 
@@ -769,101 +768,99 @@ size_t view_scroll_down(View *view, int lines) {
 	Selection *sel = view->selection;
 	if (view_viewport_down(view, lines)) {
 		Line *line = sel->line > view->topline ? sel->line : view->topline;
-		cursor_set(sel, line, sel->col);
+		cursor_set(view, sel, line, sel->col);
 	} else {
-		view_cursors_to(view->selection, text_size(view->text));
+		view_cursors_to(view, view->selection, text_size(view->text));
 	}
 	return sel->pos;
 }
 
-size_t view_line_up(Selection *sel) {
-	View *view = sel->view;
+size_t view_line_up(View *view, Selection *sel) {
 	int lastcol = sel->lastcol;
 	if (!lastcol)
 		lastcol = sel->col;
-	size_t pos = text_line_up(sel->view->text, sel->pos);
+	size_t pos = text_line_up(view->text, sel->pos);
 	bool offscreen = view->selection == sel && pos < view->start;
-	view_cursors_to(sel, pos);
+	view_cursors_to(view, sel, pos);
 	if (offscreen)
 		view_redraw_top(view);
 	if (sel->line)
-		cursor_set(sel, sel->line, lastcol);
+		cursor_set(view, sel, sel->line, lastcol);
 	sel->lastcol = lastcol;
 	return sel->pos;
 }
 
-size_t view_line_down(Selection *sel) {
-	View *view = sel->view;
+size_t view_line_down(View *view, Selection *sel) {
 	int lastcol = sel->lastcol;
 	if (!lastcol)
 		lastcol = sel->col;
-	size_t pos = text_line_down(sel->view->text, sel->pos);
+	size_t pos = text_line_down(view->text, sel->pos);
 	bool offscreen = view->selection == sel && pos > view->end;
-	view_cursors_to(sel, pos);
+	view_cursors_to(view, sel, pos);
 	if (offscreen)
 		view_redraw_bottom(view);
 	if (sel->line)
-		cursor_set(sel, sel->line, lastcol);
+		cursor_set(view, sel, sel->line, lastcol);
 	sel->lastcol = lastcol;
 	return sel->pos;
 }
 
-size_t view_screenline_up(Selection *sel) {
+size_t view_screenline_up(View *view, Selection *sel) {
 	if (!sel->line)
-		return view_line_up(sel);
+		return view_line_up(view, sel);
 	int lastcol = sel->lastcol;
 	if (!lastcol)
 		lastcol = sel->col;
 	if (!sel->line->prev)
-		view_scroll_up(sel->view, 1);
+		view_scroll_up(view, 1);
 	if (sel->line->prev)
-		cursor_set(sel, sel->line->prev, lastcol);
+		cursor_set(view, sel, sel->line->prev, lastcol);
 	sel->lastcol = lastcol;
 	return sel->pos;
 }
 
-size_t view_screenline_down(Selection *sel) {
+size_t view_screenline_down(View *view, Selection *sel) {
 	if (!sel->line)
-		return view_line_down(sel);
+		return view_line_down(view, sel);
 	int lastcol = sel->lastcol;
 	if (!lastcol)
 		lastcol = sel->col;
-	if (!sel->line->next && sel->line == sel->view->bottomline)
-		view_scroll_down(sel->view, 1);
+	if (!sel->line->next && sel->line == view->bottomline)
+		view_scroll_down(view, 1);
 	if (sel->line->next)
-		cursor_set(sel, sel->line->next, lastcol);
+		cursor_set(view, sel, sel->line->next, lastcol);
 	sel->lastcol = lastcol;
 	return sel->pos;
 }
 
-size_t view_screenline_begin(Selection *sel) {
+size_t view_screenline_begin(View *view, Selection *sel) {
 	if (!sel->line)
 		return sel->pos;
-	return cursor_set(sel, sel->line, 0);
+	return cursor_set(view, sel, sel->line, 0);
 }
 
-size_t view_screenline_middle(Selection *sel) {
+size_t view_screenline_middle(View *view, Selection *sel) {
 	if (!sel->line)
 		return sel->pos;
-	return cursor_set(sel, sel->line, sel->line->width / 2);
+	return cursor_set(view, sel, sel->line, sel->line->width / 2);
 }
 
-size_t view_screenline_end(Selection *sel) {
+size_t view_screenline_end(View *view, Selection *sel) {
 	if (!sel->line)
 		return sel->pos;
 	int col = sel->line->width - 1;
-	return cursor_set(sel, sel->line, col >= 0 ? col : 0);
+	return cursor_set(view, sel, sel->line, col >= 0 ? col : 0);
 }
 
 size_t view_cursor_get(View *view) {
-	return view_cursors_pos(view->selection);
+	return view_cursors_pos(view, view->selection);
 }
 
 void view_scroll_to(View *view, size_t pos) {
-	view_cursors_scroll_to(view->selection, pos);
+	view_cursors_scroll_to(view, view->selection, pos);
 }
 
-void win_options_set(Win *win, enum UiOption options) {
+void win_options_set(Vis *vis, Win *win, enum UiOption options) {
 	const int mapping[] = {
 		[SYNTAX_SYMBOL_SPACE]    = UI_OPTION_SYMBOL_SPACE,
 		[SYNTAX_SYMBOL_TAB]      = UI_OPTION_SYMBOL_TAB,
@@ -883,6 +880,7 @@ void win_options_set(Win *win, enum UiOption options) {
 	win->view.large_file = (options & UI_OPTION_LARGE_FILE);
 
 	ui_window_options_set(win, options);
+	ui_draw(vis);
 }
 
 bool view_breakat_set(View *view, const char *breakat) {
@@ -919,21 +917,21 @@ static Selection *selections_new(View *view, size_t pos, bool force) {
 
 	Selection *prev = NULL, *next = NULL;
 	Selection *latest = view->selection_latest ? view->selection_latest : view->selection;
-	size_t cur = view_cursors_pos(latest);
+	size_t cur = view_cursors_pos(view, latest);
 	if (pos == cur) {
 		prev = latest;
 		next = prev->next;
 	} else if (pos > cur) {
 		prev = latest;
 		for (next = prev->next; next; prev = next, next = next->next) {
-			cur = view_cursors_pos(next);
+			cur = view_cursors_pos(view, next);
 			if (pos <= cur)
 				break;
 		}
 	} else if (pos < cur) {
 		next = latest;
 		for (prev = next->prev; prev; next = prev, prev = prev->prev) {
-			cur = view_cursors_pos(prev);
+			cur = view_cursors_pos(view, prev);
 			if (pos >= cur)
 				break;
 		}
@@ -957,8 +955,8 @@ static Selection *selections_new(View *view, size_t pos, bool force) {
 	}
 	view->selection_latest = s;
 	view->selection_count++;
-	view_selections_dispose(view->selection_dead);
-	view_cursors_to(s, pos);
+	view_selections_dispose(view, view->selection_dead);
+	view_cursors_to(view, s, pos);
 	return s;
 err:
 	free(s);
@@ -982,7 +980,7 @@ int view_selections_column_count(View *view) {
 	int cpl_max = 0, cpl = 0; /* cursors per line */
 	size_t line_prev = 0;
 	for (Selection *sel = view->selections; sel; sel = sel->next) {
-		size_t pos = view_cursors_pos(sel);
+		size_t pos = view_cursors_pos(view, sel);
 		size_t line = text_lineno_by_pos(txt, pos);
 		if (line == line_prev)
 			cpl++;
@@ -1000,7 +998,7 @@ static Selection *selections_column_next(View *view, Selection *sel, int column)
 	int column_cur = 0;
 	Text *txt = view->text;
 	if (sel) {
-		size_t pos = view_cursors_pos(sel);
+		size_t pos = view_cursors_pos(view, sel);
 		line_cur = text_lineno_by_pos(txt, pos);
 		column_cur = INT_MIN;
 	} else {
@@ -1008,7 +1006,7 @@ static Selection *selections_column_next(View *view, Selection *sel, int column)
 	}
 
 	for (; sel; sel = sel->next) {
-		size_t pos = view_cursors_pos(sel);
+		size_t pos = view_cursors_pos(view, sel);
 		size_t line = text_lineno_by_pos(txt, pos);
 		if (line != line_cur) {
 			line_cur = line;
@@ -1026,11 +1024,11 @@ Selection *view_selections_column(View *view, int column) {
 	return selections_column_next(view, NULL, column);
 }
 
-Selection *view_selections_column_next(Selection *sel, int column) {
-	return selections_column_next(sel->view, sel, column);
+Selection *view_selections_column_next(View *view, Selection *sel, int column) {
+	return selections_column_next(view, sel, column);
 }
 
-static void selection_free(Selection *s) {
+static void selection_free(View *view, Selection *s) {
 	if (!s)
 		return;
 	for (Selection *after = s->next; after; after = after->next)
@@ -1039,36 +1037,34 @@ static void selection_free(Selection *s) {
 		s->prev->next = s->next;
 	if (s->next)
 		s->next->prev = s->prev;
-	if (s->view->selections == s)
-		s->view->selections = s->next;
-	if (s->view->selection == s)
-		s->view->selection = s->next ? s->next : s->prev;
-	if (s->view->selection_dead == s)
-		s->view->selection_dead = NULL;
-	if (s->view->selection_latest == s)
-		s->view->selection_latest = s->prev ? s->prev : s->next;
-	s->view->selection_count--;
+	if (view->selections == s)
+		view->selections = s->next;
+	if (view->selection == s)
+		view->selection = s->next ? s->next : s->prev;
+	if (view->selection_dead == s)
+		view->selection_dead = NULL;
+	if (view->selection_latest == s)
+		view->selection_latest = s->prev ? s->prev : s->next;
+	view->selection_count--;
 	free(s);
 }
 
-bool view_selections_dispose(Selection *sel) {
+bool view_selections_dispose(View *view, Selection *sel) {
 	if (!sel)
 		return true;
-	View *view = sel->view;
 	if (!view->selections || !view->selections->next)
 		return false;
-	selection_free(sel);
-	view_selections_primary_set(view->selection);
+	selection_free(view, sel);
+	view_selections_primary_set(view, view->selection);
 	return true;
 }
 
-bool view_selections_dispose_force(Selection *sel) {
-	if (view_selections_dispose(sel))
+bool view_selections_dispose_force(View *view, Selection *sel) {
+	if (view_selections_dispose(view, sel))
 		return true;
-	View *view = sel->view;
 	if (view->selection_dead)
 		return false;
-	view_selection_clear(sel);
+	view_selection_clear(view, sel);
 	view->selection_dead = sel;
 	return true;
 }
@@ -1089,17 +1085,16 @@ Selection *view_selections_primary_get(View *view) {
 	return view->selection;
 }
 
-void view_selections_primary_set(Selection *s) {
+void view_selections_primary_set(View *view, Selection *s) {
 	if (!s)
 		return;
-	s->view->selection = s;
+	view->selection = s;
 	Mark anchor = s->anchor;
-	view_cursors_to(s, view_cursors_pos(s));
+	view_cursors_to(view, s, view_cursors_pos(view, s));
 	s->anchor = anchor;
 }
 
-Selection *view_selections_prev(Selection *s) {
-	View *view = s->view;
+Selection *view_selections_prev(View *view, Selection *s) {
 	for (s = s->prev; s; s = s->prev) {
 		if (s->generation != view->selection_generation)
 			return s;
@@ -1108,8 +1103,7 @@ Selection *view_selections_prev(Selection *s) {
 	return NULL;
 }
 
-Selection *view_selections_next(Selection *s) {
-	View *view = s->view;
+Selection *view_selections_next(View *view, Selection *s) {
 	for (s = s->next; s; s = s->next) {
 		if (s->generation != view->selection_generation)
 			return s;
@@ -1118,45 +1112,43 @@ Selection *view_selections_next(Selection *s) {
 	return NULL;
 }
 
-size_t view_cursors_pos(Selection *s) {
-	return text_mark_get(s->view->text, s->cursor);
+size_t view_cursors_pos(View *view, Selection *s) {
+	return text_mark_get(view->text, s->cursor);
 }
 
-size_t view_cursors_line(Selection *s) {
-	size_t pos = view_cursors_pos(s);
-	return text_lineno_by_pos(s->view->text, pos);
+size_t view_cursors_line(View *view, Selection *s) {
+	size_t pos = view_cursors_pos(view, s);
+	return text_lineno_by_pos(view->text, pos);
 }
 
-size_t view_cursors_col(Selection *s) {
-	size_t pos = view_cursors_pos(s);
-	return text_line_char_get(s->view->text, pos) + 1;
+size_t view_cursors_col(View *view, Selection *s) {
+	size_t pos = view_cursors_pos(view, s);
+	return text_line_char_get(view->text, pos) + 1;
 }
 
-int view_cursors_cell_set(Selection *s, int cell) {
+int view_cursors_cell_set(View *view, Selection *s, int cell) {
 	if (!s->line || cell < 0)
 		return -1;
-	cursor_set(s, s->line, cell);
+	cursor_set(view, s, s->line, cell);
 	return s->col;
 }
 
-void view_cursors_scroll_to(Selection *s, size_t pos) {
-	View *view = s->view;
+void view_cursors_scroll_to(View *view, Selection *s, size_t pos) {
 	if (view->selection == s) {
 		view_draw(view);
 		while (pos < view->start && view_viewport_up(view, 1));
 		while (pos > view->end && view_viewport_down(view, 1));
 	}
-	view_cursors_to(s, pos);
+	view_cursors_to(view, s, pos);
 }
 
-void view_cursors_to(Selection *s, size_t pos) {
-	View *view = s->view;
+void view_cursors_to(View *view, Selection *s, size_t pos) {
 	if (pos == EPOS)
 		return;
 	size_t size = text_size(view->text);
 	if (pos > size)
 		pos = size;
-	if (s->view->selection == s) {
+	if (view->selection == s) {
 		/* make sure we redraw changes to the very first character of the window */
 		if (view->start == pos)
 			view->start_last = 0;
@@ -1182,32 +1174,32 @@ void view_cursors_to(Selection *s, size_t pos) {
 		}
 	}
 
-	cursor_to(s, pos);
+	cursor_to(view, s, pos);
 }
 
-void view_cursors_place(Selection *s, size_t line, size_t col) {
-	Text *txt = s->view->text;
+void view_cursors_place(View *view, Selection *s, size_t line, size_t col) {
+	Text *txt = view->text;
 	size_t pos = text_pos_by_lineno(txt, line);
 	pos = text_line_char_set(txt, pos, col > 0 ? col-1 : col);
-	view_cursors_to(s, pos);
+	view_cursors_to(view, s, pos);
 }
 
-void view_selection_clear(Selection *s) {
+void view_selection_clear(View *view, Selection *s) {
 	s->anchored = false;
 	s->anchor = s->cursor;
-	s->view->need_update = true;
+	view->need_update = true;
 }
 
-void view_selections_flip(Selection *s) {
+void view_selections_flip(View *view, Selection *s) {
 	Mark temp = s->anchor;
 	s->anchor = s->cursor;
 	s->cursor = temp;
-	view_cursors_to(s, text_mark_get(s->view->text, s->cursor));
+	view_cursors_to(view, s, text_mark_get(view->text, s->cursor));
 }
 
 void view_selections_clear_all(View *view) {
 	for (Selection *s = view->selections; s; s = s->next)
-		view_selection_clear(s);
+		view_selection_clear(view, s);
 	view_draw(view);
 }
 
@@ -1218,15 +1210,14 @@ void view_selections_dispose_all(View *view) {
 	for (Selection *s = last, *prev; s; s = prev) {
 		prev = s->prev;
 		if (s != view->selection)
-			selection_free(s);
+			selection_free(view, s);
 	}
 	view_draw(view);
 }
 
-Filerange view_selections_get(Selection *s) {
+Filerange view_selections_get(Text *txt, Selection *s) {
 	if (!s)
 		return text_range_empty();
-	Text *txt = s->view->text;
 	size_t anchor = text_mark_get(txt, s->anchor);
 	size_t cursor = text_mark_get(txt, s->cursor);
 	Filerange sel = text_range_new(anchor, cursor);
@@ -1235,19 +1226,19 @@ Filerange view_selections_get(Selection *s) {
 	return sel;
 }
 
-bool view_selections_set(Selection *s, const Filerange *r) {
-	Text *txt = s->view->text;
+bool view_selections_set(View *view, Selection *s, Filerange r) {
+	Text *txt = view->text;
 	size_t max = text_size(txt);
-	if (!text_range_valid(r) || r->start >= max)
+	if (!text_range_valid(&r) || r.start >= max)
 		return false;
 	size_t anchor = text_mark_get(txt, s->anchor);
 	size_t cursor = text_mark_get(txt, s->cursor);
 	bool left_extending = anchor != EPOS && anchor > cursor;
-	size_t end = r->end > max ? max : r->end;
-	if (r->start != end)
+	size_t end = r.end > max ? max : r.end;
+	if (r.start != end)
 		end = text_char_prev(txt, end);
-	view_cursors_to(s, left_extending ? r->start : end);
-	s->anchor = text_mark_set(txt, left_extending ? end : r->start);
+	view_cursors_to(view, s, left_extending ? r.start : end);
+	s->anchor = text_mark_set(txt, left_extending ? end : r.start);
 	return true;
 }
 
@@ -1279,13 +1270,13 @@ void view_selections_set_all(View *view, Array *arr, bool anchored) {
 	Filerange *r;
 	size_t i = 0;
 	for (s = view->selections; s; s = s->next) {
-		if (!(r = array_get(arr, i++)) || !view_selections_set(s, r)) {
+		if (!(r = array_get(arr, i++)) || !view_selections_set(view, s, *r)) {
 			for (Selection *next; s; s = next) {
-				next = view_selections_next(s);
+				next = view_selections_next(view, s);
 				if (i == 1 && s == view->selection)
-					view_selection_clear(s);
+					view_selection_clear(view, s);
 				else
-					view_selections_dispose(s);
+					view_selections_dispose(view, s);
 			}
 			break;
 		}
@@ -1293,11 +1284,11 @@ void view_selections_set_all(View *view, Array *arr, bool anchored) {
 	}
 	while ((r = array_get(arr, i++))) {
 		s = view_selections_new_force(view, r->start);
-		if (!s || !view_selections_set(s, r))
+		if (!s || !view_selections_set(view, s, *r))
 			break;
 		s->anchored = anchored;
 	}
-	view_selections_primary_set(view->selections);
+	view_selections_primary_set(view, view->selections);
 }
 
 Array view_selections_get_all(View *view) {
@@ -1306,7 +1297,7 @@ Array view_selections_get_all(View *view) {
 	if (!array_reserve(&arr, view->selection_count))
 		return arr;
 	for (Selection *s = view->selections; s; s = s->next) {
-		Filerange r = view_selections_get(s);
+		Filerange r = view_selections_get(view->text, s);
 		if (text_range_valid(&r))
 			array_add(&arr, &r);
 	}
@@ -1318,24 +1309,24 @@ void view_selections_normalize(View *view) {
 	Filerange range_prev = text_range_empty();
 	for (Selection *s = view->selections, *next; s; s = next) {
 		next = s->next;
-		Filerange range = view_selections_get(s);
+		Filerange range = view_selections_get(view->text, s);
 		if (!text_range_valid(&range)) {
-			view_selections_dispose(s);
+			view_selections_dispose(view, s);
 		} else if (prev && text_range_overlap(&range_prev, &range)) {
 			range_prev = text_range_union(&range_prev, &range);
-			view_selections_dispose(s);
+			view_selections_dispose(view, s);
 		} else {
 			if (prev)
-				view_selections_set(prev, &range_prev);
+				view_selections_set(view, prev, range_prev);
 			range_prev = range;
 			prev = s;
 		}
 	}
 	if (prev)
-		view_selections_set(prev, &range_prev);
+		view_selections_set(view, prev, range_prev);
 }
 
-void win_style(Win *win, enum UiStyle style, size_t start, size_t end) {
+void win_style(Ui *ui, Win *win, enum UiStyle style, size_t start, size_t end) {
 	View *view = &win->view;
 	if (end < view->start || start > view->end)
 		return;
@@ -1365,7 +1356,7 @@ void win_style(Win *win, enum UiStyle style, size_t start, size_t end) {
 	do {
 		while (pos <= end && col < width) {
 			pos += line->cells[col].len;
-			ui_window_style_set(win, &line->cells[col++], style);
+			ui_window_style_set(ui, win->id, &line->cells[col++], style);
 		}
 		col = 0;
 	} while (pos <= end && (line = line->next));

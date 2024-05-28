@@ -148,8 +148,9 @@ static void vis_mode_normal_enter(Vis *vis, Mode *old) {
 		return;
 	if (vis->autoindent && strcmp(vis->key_prev, "<Enter>") == 0) {
 		Text *txt = win->file->text;
-		for (Selection *s = view_selections(&win->view); s; s = view_selections_next(s)) {
-			size_t pos = view_cursors_pos(s);
+		View *view = &win->view;
+		for (Selection *s = view_selections(view); s; s = view_selections_next(view, s)) {
+			size_t pos = view_cursors_pos(view, s);
 			size_t start = text_line_start(txt, pos);
 			size_t end = text_line_end(txt, pos);
 			if (start == pos && start == end) {
@@ -157,7 +158,7 @@ static void vis_mode_normal_enter(Vis *vis, Mode *old) {
 				size_t len = start - begin;
 				if (len) {
 					text_delete(txt, begin, len);
-					view_cursors_to(s, pos-len);
+					view_cursors_to(view, s, pos-len);
 				}
 			}
 		}
@@ -189,7 +190,7 @@ static void vis_mode_operator_input(Vis *vis, const char *str, size_t len) {
 static void vis_mode_visual_enter(Vis *vis, Mode *old) {
 	Win *win = vis->win;
 	if (!old->visual && win) {
-		for (Selection *s = view_selections(&win->view); s; s = view_selections_next(s))
+		for (Selection *s = view_selections(&win->view); s; s = view_selections_next(&win->view, s))
 			s->anchored = true;
 	}
 }
@@ -197,7 +198,7 @@ static void vis_mode_visual_enter(Vis *vis, Mode *old) {
 static void vis_mode_visual_line_enter(Vis *vis, Mode *old) {
 	Win *win = vis->win;
 	if (!old->visual && win) {
-		for (Selection *s = view_selections(&win->view); s; s = view_selections_next(s))
+		for (Selection *s = view_selections(&win->view); s; s = view_selections_next(&win->view, s))
 			s->anchored = true;
 	}
 	if (!vis->action.op)
@@ -206,14 +207,15 @@ static void vis_mode_visual_line_enter(Vis *vis, Mode *old) {
 
 static void vis_mode_visual_line_leave(Vis *vis, Mode *new) {
 	Win *win = vis->win;
+	View *view = &win->view;
 	if (!win)
 		return;
 	if (!new->visual) {
 		if (!vis->action.op)
 			window_selection_save(win);
-		view_selections_clear_all(&win->view);
+		view_selections_clear_all(view);
 	} else {
-		view_cursors_to(win->view.selection, view_cursor_get(&win->view));
+		view_cursors_to(view, view->selection, view_cursor_get(view));
 	}
 }
 

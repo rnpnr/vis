@@ -276,7 +276,7 @@ static bool cmd_set(Vis *vis, Win *win, Command *cmd, const char *argv[], Select
 			flags |= values[opt_index];
 		else
 			flags &= ~values[opt_index];
-		win_options_set(win, flags);
+		win_options_set(vis, win, flags);
 		break;
 	}
 	case OPTION_NUMBER: {
@@ -287,7 +287,7 @@ static bool cmd_set(Vis *vis, Win *win, Command *cmd, const char *argv[], Select
 		} else {
 			opt &= ~UI_OPTION_LINE_NUMBERS_ABSOLUTE;
 		}
-		win_options_set(win, opt);
+		win_options_set(vis, win, opt);
 		break;
 	}
 	case OPTION_NUMBER_RELATIVE: {
@@ -298,7 +298,7 @@ static bool cmd_set(Vis *vis, Win *win, Command *cmd, const char *argv[], Select
 		} else {
 			opt &= ~UI_OPTION_LINE_NUMBERS_RELATIVE;
 		}
-		win_options_set(win, opt);
+		win_options_set(vis, win, opt);
 		break;
 	}
 	case OPTION_CURSOR_LINE: {
@@ -307,7 +307,7 @@ static bool cmd_set(Vis *vis, Win *win, Command *cmd, const char *argv[], Select
 			opt |= UI_OPTION_CURSOR_LINE;
 		else
 			opt &= ~UI_OPTION_CURSOR_LINE;
-		win_options_set(win, opt);
+		win_options_set(vis, win, opt);
 		break;
 	}
 	case OPTION_COLOR_COLUMN:
@@ -341,7 +341,7 @@ static bool cmd_set(Vis *vis, Win *win, Command *cmd, const char *argv[], Select
 		}
 		break;
 	case OPTION_CHANGE_256COLORS:
-		vis->change_colors = toggle ? !vis->change_colors : arg.b;
+		vis->ui.change_colors = toggle ? !vis->ui.change_colors : arg.b;
 		break;
 	case OPTION_LAYOUT: {
 		enum UiLayout layout;
@@ -478,9 +478,9 @@ static bool cmd_edit(Vis *vis, Win *win, Command *cmd, const char *argv[], Selec
 		return false;
 	if (vis->win != oldwin) {
 		Win *newwin = vis->win;
-		vis_window_swap(oldwin, newwin);
-		vis_window_close(oldwin);
-		vis_window_focus(newwin);
+		vis_window_swap(vis, oldwin, newwin);
+		vis_window_close(vis, oldwin);
+		vis_window_focus(vis, newwin);
 	}
 	return vis->win != oldwin;
 }
@@ -516,7 +516,7 @@ static bool cmd_quit(Vis *vis, Win *win, Command *cmd, const char *argv[], Selec
 		info_unsaved_changes(vis);
 		return false;
 	}
-	vis_window_close(win);
+	vis_window_close(vis, win);
 	if (!has_windows(vis))
 		vis_exit(vis, argv[1] ? atoi(argv[1]) : EXIT_SUCCESS);
 	return true;
@@ -526,7 +526,7 @@ static bool cmd_qall(Vis *vis, Win *win, Command *cmd, const char *argv[], Selec
 	for (Win *next, *win = vis->windows; win; win = next) {
 		next = win->next;
 		if (!win->file->internal && (!text_modified(win->file->text) || cmd->flags == '!'))
-			vis_window_close(win);
+			vis_window_close(vis, win);
 	}
 	if (!has_windows(vis)) {
 		vis_exit(vis, argv[1] ? atoi(argv[1]) : EXIT_SUCCESS);
@@ -543,10 +543,10 @@ static bool cmd_split(Vis *vis, Win *win, Command *cmd, const char *argv[], Sele
 	enum UiOption options = win->options;
 	ui_arrange(&vis->ui, UI_LAYOUT_HORIZONTAL);
 	if (!argv[1])
-		return vis_window_split(win);
+		return vis_window_split(vis, win);
 	bool ret = openfiles(vis, &argv[1]);
 	if (ret)
-		win_options_set(vis->win, options);
+		win_options_set(vis, vis->win, options);
 	return ret;
 }
 
@@ -556,10 +556,10 @@ static bool cmd_vsplit(Vis *vis, Win *win, Command *cmd, const char *argv[], Sel
 	enum UiOption options = win->options;
 	ui_arrange(&vis->ui, UI_LAYOUT_VERTICAL);
 	if (!argv[1])
-		return vis_window_split(win);
+		return vis_window_split(vis, win);
 	bool ret = openfiles(vis, &argv[1]);
 	if (ret)
-		win_options_set(vis->win, options);
+		win_options_set(vis, vis->win, options);
 	return ret;
 }
 
@@ -871,7 +871,7 @@ static bool cmd_help(Vis *vis, Win *win, Command *cmd, const char *argv[], Selec
 		text_appendf(txt, "  %-32s\t%s\n", configs[i].name, configs[i].enabled ? "yes" : "no");
 
 	text_save(txt, NULL);
-	view_cursors_to(vis->win->view.selection, 0);
+	view_cursors_to(&vis->win->view, vis->win->view.selection, 0);
 
 	if (argv[1])
 		vis_motion(vis, VIS_MOVE_SEARCH_FORWARD, argv[1], strlen(argv[1]));
