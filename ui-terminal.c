@@ -1,10 +1,8 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
-#include <limits.h>
-#include <ctype.h>
 #include <locale.h>
+#include <limits.h>
 #include <poll.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
@@ -13,10 +11,10 @@
 #include <termios.h>
 #include <errno.h>
 
+#include "util.h"
 #include "vis.h"
 #include "vis-core.h"
 #include "text.h"
-#include "util.h"
 #include "text-util.h"
 
 #ifndef DEBUG_UI
@@ -77,46 +75,52 @@ static void ui_window_move(Win *win, int x, int y) {
 	win->y = y;
 }
 
-static bool color_fromstring(Ui *ui, CellColor *color, const char *s)
+static b32
+color_from_s8(Vis *vis, CellColor *color, s8 s)
 {
-	if (!s)
+	if (s.len <= 0)
 		return false;
-	if (*s == '#' && strlen(s) == 7) {
-		const char *cp;
-		unsigned char r, g, b;
-		for (cp = s + 1; isxdigit((unsigned char)*cp); cp++);
-		if (*cp != '\0')
-			return false;
-		int n = sscanf(s + 1, "%2hhx%2hhx%2hhx", &r, &g, &b);
-		if (n != 3)
-			return false;
-		*color = color_rgb(ui, r, g, b);
+
+	#if 0
+	/* TODO(rnp): this can fire before the default style gets set which can break
+	 * it for some reason. */
+	if (s.data[0] == '#' && s.len > 7) {
+		vis_info_show(vis, "WARNING: style_define: ignoring alpha channel in: %*s",
+		              (int)s.len, s.data);
+		s.len = 7;
+	}
+	#endif
+
+	if (s.data[0] == '#' && s.len == 7) {
+		u32 rgb = s8_hex_to_u32(s);
+		*color = color_rgb(vis->change_colors,
+		                   (rgb >> 16) & 0xFFu, (rgb >> 8) & 0xFFu, (rgb >> 0) & 0xFFu);
 		return true;
-	} else if ('0' <= *s && *s <= '9') {
-		int index = atoi(s);
+	} else if (BETWEEN(s.data[0], '0', '9')) {
+		i64 index = s8_to_i64(s);
 		if (index <= 0 || index > 255)
 			return false;
-		*color = color_terminal(ui, index);
+		*color = color_terminal(index);
 		return true;
 	}
 
 	static const struct {
-		const char *name;
+		s8        name;
 		CellColor color;
 	} color_names[] = {
-		{ "black",   CELL_COLOR_BLACK   },
-		{ "red",     CELL_COLOR_RED     },
-		{ "green",   CELL_COLOR_GREEN   },
-		{ "yellow",  CELL_COLOR_YELLOW  },
-		{ "blue",    CELL_COLOR_BLUE    },
-		{ "magenta", CELL_COLOR_MAGENTA },
-		{ "cyan",    CELL_COLOR_CYAN    },
-		{ "white",   CELL_COLOR_WHITE   },
-		{ "default", CELL_COLOR_DEFAULT },
+		{ s8("black"),   CELL_COLOR_BLACK   },
+		{ s8("red"),     CELL_COLOR_RED     },
+		{ s8("green"),   CELL_COLOR_GREEN   },
+		{ s8("yellow"),  CELL_COLOR_YELLOW  },
+		{ s8("blue"),    CELL_COLOR_BLUE    },
+		{ s8("magenta"), CELL_COLOR_MAGENTA },
+		{ s8("cyan"),    CELL_COLOR_CYAN    },
+		{ s8("white"),   CELL_COLOR_WHITE   },
+		{ s8("default"), CELL_COLOR_DEFAULT },
 	};
 
 	for (size_t i = 0; i < LENGTH(color_names); i++) {
-		if (strcasecmp(color_names[i].name, s) == 0) {
+		if (s8_case_ignore_equal(color_names[i].name, s)) {
 			*color = color_names[i].color;
 			return true;
 		}
@@ -125,58 +129,54 @@ static bool color_fromstring(Ui *ui, CellColor *color, const char *s)
 	return false;
 }
 
-bool ui_style_define(Win *win, int id, const char *style) {
+b32 ui_style_define(Win *win, int id, s8 style) {
 	Ui *tui = &win->vis->ui;
 	if (id >= UI_STYLE_MAX)
 		return false;
-	if (!style)
-		return true;
 
 	CellStyle cell_style = CELL_STYLE_DEFAULT;
-	char *style_copy = strdup(style), *option = style_copy;
-	while (option) {
-		while (*option == ' ')
-			option++;
-		char *next = strchr(option, ',');
-		if (next)
-			*next++ = '\0';
-		char *value = strchr(option, ':');
-		if (value)
-			for (*value++ = '\0'; *value == ' '; value++);
-		if (!strcasecmp(option, "reverse")) {
+	s8 option = style;
+	b32 result = true;
+	while (option.len) {
+		s8 next, value;
+		option = s8_trim_space(option);
+		s8_split(option, ',', &option, &next);
+		s8_split(option, ':', &option, &value);
+		value  = s8_trim_space(value);
+
+		if (s8_case_ignore_equal(option, s8("reverse"))) {
 			cell_style.attr |= CELL_ATTR_REVERSE;
-		} else if (!strcasecmp(option, "notreverse")) {
+		} else if (s8_case_ignore_equal(option, s8("notreverse"))) {
 			cell_style.attr &= CELL_ATTR_REVERSE;
-		} else if (!strcasecmp(option, "bold")) {
+		} else if (s8_case_ignore_equal(option, s8("bold"))) {
 			cell_style.attr |= CELL_ATTR_BOLD;
-		} else if (!strcasecmp(option, "notbold")) {
+		} else if (s8_case_ignore_equal(option, s8("notbold"))) {
 			cell_style.attr &= ~CELL_ATTR_BOLD;
-		} else if (!strcasecmp(option, "dim")) {
+		} else if (s8_case_ignore_equal(option, s8("dim"))) {
 			cell_style.attr |= CELL_ATTR_DIM;
-		} else if (!strcasecmp(option, "notdim")) {
+		} else if (s8_case_ignore_equal(option, s8("notdim"))) {
 			cell_style.attr &= ~CELL_ATTR_DIM;
-		} else if (!strcasecmp(option, "italics")) {
+		} else if (s8_case_ignore_equal(option, s8("italics"))) {
 			cell_style.attr |= CELL_ATTR_ITALIC;
-		} else if (!strcasecmp(option, "notitalics")) {
+		} else if (s8_case_ignore_equal(option, s8("notitalics"))) {
 			cell_style.attr &= ~CELL_ATTR_ITALIC;
-		} else if (!strcasecmp(option, "underlined")) {
+		} else if (s8_case_ignore_equal(option, s8("underlined"))) {
 			cell_style.attr |= CELL_ATTR_UNDERLINE;
-		} else if (!strcasecmp(option, "notunderlined")) {
+		} else if (s8_case_ignore_equal(option, s8("notunderlined"))) {
 			cell_style.attr &= ~CELL_ATTR_UNDERLINE;
-		} else if (!strcasecmp(option, "blink")) {
+		} else if (s8_case_ignore_equal(option, s8("blink"))) {
 			cell_style.attr |= CELL_ATTR_BLINK;
-		} else if (!strcasecmp(option, "notblink")) {
+		} else if (s8_case_ignore_equal(option, s8("notblink"))) {
 			cell_style.attr &= ~CELL_ATTR_BLINK;
-		} else if (!strcasecmp(option, "fore")) {
-			color_fromstring(&win->vis->ui, &cell_style.fg, value);
-		} else if (!strcasecmp(option, "back")) {
-			color_fromstring(&win->vis->ui, &cell_style.bg, value);
+		} else if (s8_case_ignore_equal(option, s8("fore"))) {
+			result &= color_from_s8(win->vis, &cell_style.fg, value);
+		} else if (s8_case_ignore_equal(option, s8("back"))) {
+			result &= color_from_s8(win->vis, &cell_style.bg, value);
 		}
 		option = next;
 	}
-	tui->styles[win->id * UI_STYLE_MAX + id] = cell_style;
-	free(style_copy);
-	return true;
+	if (result) tui->styles[win->id * UI_STYLE_MAX + id] = cell_style;
+	return result;
 }
 
 static void ui_draw_line(Ui *tui, int x, int y, char c, enum UiStyle style_id) {

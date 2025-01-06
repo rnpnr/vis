@@ -73,13 +73,13 @@ static void undo_palette(void)
 }
 
 /* Work out the nearest color from the 256 color set, or perhaps exactly. */
-static CellColor color_rgb(Ui *ui, uint8_t r, uint8_t g, uint8_t b)
+static CellColor color_rgb(bool config_change_colors, u8 r, u8 g, u8 b)
 {
 	static short color_clobber_idx = 0;
 	static uint32_t clobbering_colors[MAX_COLOR_CLOBBER];
 
 	if (change_colors == -1)
-		change_colors = ui->vis->change_colors && can_change_color() && COLORS >= 256;
+		change_colors = config_change_colors && can_change_color() && COLORS >= 256;
 	if (change_colors) {
 		uint32_t hexrep = (r << 16) | (g << 8) | b;
 		for (short i = 0; i < MAX_COLOR_CLOBBER; ++i) {
@@ -151,7 +151,8 @@ static CellColor color_rgb(Ui *ui, uint8_t r, uint8_t g, uint8_t b)
 	return i;
 }
 
-static CellColor color_terminal(Ui *ui, uint8_t index) {
+static CellColor color_terminal(u8 index)
+{
 	return index;
 }
 
