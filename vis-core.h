@@ -2,6 +2,8 @@
 #define VIS_CORE_H
 
 #include <setjmp.h>
+
+#include "util.h"
 #include "vis.h"
 #include "sam.h"
 #include "vis-lua.h"
@@ -10,7 +12,6 @@
 #include "map.h"
 #include "array.h"
 #include "buffer.h"
-#include "util.h"
 
 /* a mode contains a set of key bindings which are currently valid.
  *

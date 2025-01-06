@@ -17,6 +17,7 @@ SRC = array.c \
 	text-util.c \
 	text.c \
 	ui-terminal.c \
+	util.c \
 	view.c \
 	vis-lua.c \
 	vis-marks.c \

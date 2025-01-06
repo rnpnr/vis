@@ -21,10 +21,10 @@
 #include <sys/types.h>
 #include <pwd.h>
 
+#include "util.h"
 #include "vis-lua.h"
 #include "vis-core.h"
 #include "text-motions.h"
-#include "util.h"
 
 #ifndef VIS_PATH
 #define VIS_PATH "/usr/local/share/vis"
@@ -2015,9 +2015,9 @@ static int window_unmap(lua_State *L) {
 static int window_style_define(lua_State *L) {
 	Win *win = obj_ref_check(L, 1, VIS_LUA_TYPE_WINDOW);
 	enum UiStyle id = luaL_checkunsigned(L, 2);
-	const char *style = luaL_checkstring(L, 3);
-	bool ret = ui_style_define(win, id, style);
-	lua_pushboolean(L, ret);
+	size_t len;
+	u8 *style = (u8 *)luaL_checklstring(L, 3, &len);
+	lua_pushboolean(L, ui_style_define(win, id, (s8){.len = len, .data = style}));
 	return 1;
 }
 

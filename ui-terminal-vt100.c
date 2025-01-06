@@ -59,34 +59,31 @@
 #define CELL_ATTR_DIM       (1 << 5)
 
 static inline bool cell_color_equal(CellColor c1, CellColor c2) {
-	if (c1.index != (uint8_t)-1 || c2.index != (uint8_t)-1)
-		return c1.index == c2.index;
-	return c1.r == c2.r && c1.g == c2.g && c1.b == c2.b;
+	return c1.index == c2.index && c1.r == c2.r && c1.g == c2.g && c1.b == c2.b;
 }
 
-static CellColor color_rgb(Ui *ui, uint8_t r, uint8_t g, uint8_t b) {
-	return (CellColor){ .r = r, .g = g, .b = b, .index = (uint8_t)-1 };
+static CellColor color_rgb(bool unused, u8 r, u8 g, u8 b) {
+	return (CellColor){ .r = r, .g = g, .b = b, .index = (u8)-1 };
 }
 
-static CellColor color_terminal(Ui *ui, uint8_t index) {
+static CellColor color_terminal(u8 index) {
 	return (CellColor){ .r = 0, .g = 0, .b = 0, .index = index };
 }
-
 
 static void output(const char *data, size_t len) {
 	write(STDERR_FILENO, data, len);
 }
 
-static void output_literal(const char *data) {
-	output(data, strlen(data));
+static void output_s8(s8 msg) {
+	output((char *)msg.data, msg.len);
 }
 
 static void screen_alternate(bool alternate) {
-	output_literal(alternate ? "\x1b[?1049h" : "\x1b[0m" "\x1b[?1049l" "\x1b[0m" );
+	output_s8(alternate ? s8("\x1b[?1049h") : s8("\x1b[0m" "\x1b[?1049l" "\x1b[0m"));
 }
 
 static void cursor_visible(bool visible) {
-	output_literal(visible ? "\x1b[?25h" : "\x1b[?25l");
+	output_s8(visible ? s8("\x1b[?25h") : s8("\x1b[?25l"));
 }
 
 static void ui_term_backend_blit(Ui *tui) {
