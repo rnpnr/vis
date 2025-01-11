@@ -137,15 +137,17 @@ void vis_shell_set(Vis *vis, const char *new_shell) {
 
 /* parse human-readable boolean value in s. If successful, store the result in
  * outval and return true. Else return false and leave outval alone. */
-static bool parse_bool(const char *s, bool *outval) {
-	for (const char **t = (const char*[]){"1", "true", "yes", "on", NULL}; *t; t++) {
-		if (!strcasecmp(s, *t)) {
+static bool parse_bool(s8 s, bool *outval) {
+	s8 true_strs[] = {s8("1"), s8("true"), s8("yes"), s8("on")};
+	for (i32 i = 0; i < LENGTH(true_strs); i++) {
+		if (s8_case_ignore_equal(true_strs[i], s)) {
 			*outval = true;
 			return true;
 		}
 	}
-	for (const char **f = (const char*[]){"0", "false", "no", "off", NULL}; *f; f++) {
-		if (!strcasecmp(s, *f)) {
+	s8 false_strs[] = {s8("0"), s8("false"), s8("no"), s8("off")};
+	for (i32 i = 0; i < LENGTH(false_strs); i++) {
+		if (s8_case_ignore_equal(false_strs[i], s)) {
 			*outval = false;
 			return true;
 		}
@@ -202,7 +204,7 @@ static bool cmd_set(Vis *vis, Win *win, Command *cmd, const char *argv[], Select
 	} else if (opt->flags & VIS_OPTION_TYPE_BOOL) {
 		if (!argv[2]) {
 			arg.b = !toggle;
-		} else if (!parse_bool(argv[2], &arg.b)) {
+		} else if (!parse_bool(c_str_to_s8(argv[2]), &arg.b)) {
 			vis_info_show(vis, "Expecting boolean option value not: `%s'", argv[2]);
 			return false;
 		}
