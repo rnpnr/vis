@@ -24,6 +24,14 @@ void s8_split(s8 in, u8 c, s8 *lhs, s8 *rhs)
 	}
 }
 
+b32 s8_equal(s8 a, s8 b)
+{
+	b32 result = a.len == b.len;
+	for (ix i = 0; result && i < a.len; i++)
+		result &= a.data[i] == b.data[i];
+	return result;
+}
+
 b32 s8_case_ignore_equal(s8 a, s8 b)
 {
 	b32 result = a.len == b.len;

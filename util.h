@@ -70,6 +70,7 @@ void s8_split(s8, u8 cut_byte, s8 *lhs, s8 *rhs);
 i64 s8_to_i64(s8);
 u32 s8_hex_to_u32(s8);
 
+b32 s8_equal(s8, s8);
 b32 s8_case_ignore_equal(s8, s8);
 
 #endif /* UTIL_H */
