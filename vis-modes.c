@@ -93,12 +93,10 @@ void vis_mode_switch(Vis *vis, enum VisMode mode) {
 		mode_set(vis, &vis_modes[mode]);
 }
 
-enum VisMode vis_mode_from(Vis *vis, const char *name) {
-	for (size_t i = 0; name && i < LENGTH(vis_modes); i++) {
-		Mode *mode = &vis_modes[i];
-		if (!strcasecmp(mode->name, name))
-			return mode->id;
-	}
+enum VisMode vis_mode_from(Vis *vis, s8 name) {
+	for (size_t i = 0; name.len && i < LENGTH(vis_modes); i++)
+		if (s8_case_ignore_equal(vis_modes[i].name, name))
+			return vis_modes[i].id;
 	return VIS_MODE_INVALID;
 }
 
@@ -253,55 +251,49 @@ static void vis_mode_replace_input(Vis *vis, const char *str, size_t len) {
 
 Mode vis_modes[] = {
 	[VIS_MODE_OPERATOR_PENDING] = {
-		.id = VIS_MODE_OPERATOR_PENDING,
-		.name = "OPERATOR-PENDING",
-		.input = vis_mode_operator_input,
-		.help = "",
+		.id           = VIS_MODE_OPERATOR_PENDING,
+		.name         = s8("OPERATOR-PENDING"),
+		.input        = vis_mode_operator_input,
 	},
 	[VIS_MODE_NORMAL] = {
-		.id = VIS_MODE_NORMAL,
-		.name = "NORMAL",
-		.help = "",
-		.enter = vis_mode_normal_enter,
+		.id           = VIS_MODE_NORMAL,
+		.name         = s8("NORMAL"),
+		.enter        = vis_mode_normal_enter,
 	},
 	[VIS_MODE_VISUAL] = {
-		.id = VIS_MODE_VISUAL,
-		.name = "VISUAL",
-		.status = "VISUAL",
-		.help = "",
-		.enter = vis_mode_visual_enter,
-		.leave = vis_mode_visual_leave,
-		.visual = true,
+		.id           = VIS_MODE_VISUAL,
+		.name         = s8("VISUAL"),
+		.status       = s8("VISUAL"),
+		.enter        = vis_mode_visual_enter,
+		.leave        = vis_mode_visual_leave,
+		.visual       = true,
 	},
 	[VIS_MODE_VISUAL_LINE] = {
-		.id = VIS_MODE_VISUAL_LINE,
-		.name = "VISUAL-LINE",
-		.parent = &vis_modes[VIS_MODE_VISUAL],
-		.status = "VISUAL-LINE",
-		.help = "",
-		.enter = vis_mode_visual_line_enter,
-		.leave = vis_mode_visual_line_leave,
-		.visual = true,
+		.id           = VIS_MODE_VISUAL_LINE,
+		.parent       = &vis_modes[VIS_MODE_VISUAL],
+		.name         = s8("VISUAL-LINE"),
+		.status       = s8("VISUAL-LINE"),
+		.enter        = vis_mode_visual_line_enter,
+		.leave        = vis_mode_visual_line_leave,
+		.visual       = true,
 	},
 	[VIS_MODE_INSERT] = {
-		.id = VIS_MODE_INSERT,
-		.name = "INSERT",
-		.status = "INSERT",
-		.help = "",
-		.enter = vis_mode_insert_replace_enter,
-		.input = vis_mode_insert_input,
-		.idle = vis_mode_insert_idle,
+		.id           = VIS_MODE_INSERT,
+		.name         = s8("INSERT"),
+		.status       = s8("INSERT"),
+		.enter        = vis_mode_insert_replace_enter,
+		.input        = vis_mode_insert_input,
+		.idle         = vis_mode_insert_idle,
 		.idle_timeout = 3,
 	},
 	[VIS_MODE_REPLACE] = {
-		.id = VIS_MODE_REPLACE,
-		.name = "REPLACE",
-		.parent = &vis_modes[VIS_MODE_INSERT],
-		.status = "REPLACE",
-		.help = "",
-		.enter = vis_mode_insert_replace_enter,
-		.input = vis_mode_replace_input,
-		.idle = vis_mode_insert_idle,
+		.id           = VIS_MODE_REPLACE,
+		.parent       = &vis_modes[VIS_MODE_INSERT],
+		.name         = s8("REPLACE"),
+		.status       = s8("REPLACE"),
+		.enter        = vis_mode_insert_replace_enter,
+		.input        = vis_mode_replace_input,
+		.idle         = vis_mode_insert_idle,
 		.idle_timeout = 3,
 	},
 };

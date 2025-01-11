@@ -264,7 +264,7 @@ enum VisMode {
  */
 void vis_mode_switch(Vis*, enum VisMode);
 /** Translate human readable mode name to constant. */
-enum VisMode vis_mode_from(Vis*, const char *name);
+enum VisMode vis_mode_from(Vis*, s8 name);
 
 /**
  * @}

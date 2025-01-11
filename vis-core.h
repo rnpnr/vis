@@ -28,9 +28,9 @@ struct Mode {
 	enum VisMode id;
 	Mode *parent;                       /* if no match is found in this mode, search will continue there */
 	Map *bindings;
-	const char *name;                   /* descriptive, user facing name of the mode */
-	const char *status;                 /* name displayed in the window status bar */
-	const char *help;                   /* short description used by :help */
+	s8 name;                                  /* descriptive, user facing name of the mode */
+	s8 status;                                /* name displayed in the window status bar */
+	s8 help;                                  /* short description used by :help */
 	void (*enter)(Vis*, Mode *old);           /* called right before the mode becomes active */
 	void (*leave)(Vis*, Mode *new);           /* called right before the mode becomes inactive */
 	void (*input)(Vis*, const char*, size_t); /* called whenever a key is not found in this mode and all its parent modes */

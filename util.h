@@ -73,4 +73,6 @@ u32 s8_hex_to_u32(s8);
 b32 s8_equal(s8, s8);
 b32 s8_case_ignore_equal(s8, s8);
 
+s8 c_str_to_s8(const char *);
+
 #endif /* UTIL_H */
