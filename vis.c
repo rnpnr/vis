@@ -1,21 +1,18 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-#include <strings.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
-#include <ctype.h>
 #include <time.h>
 #include <sys/select.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
-#include <sys/mman.h>
 #include <pwd.h>
 #include <libgen.h>
 #include <termkey.h>
@@ -1875,24 +1872,22 @@ int vis_pipe_buf_collect(Vis *vis, const char* buf, const char *argv[], char **o
 }
 
 bool vis_cmd(Vis *vis, const char *cmdline) {
-	if (!cmdline)
-		return true;
-	while (*cmdline == ':')
-		cmdline++;
-	char *line = strdup(cmdline);
-	if (!line)
-		return false;
+	bool result = true;
+	if (cmdline) {
+		while (*cmdline == ':')
+			cmdline++;
+		s8 line = {.len = strlen(cmdline), .data = (u8 *)cmdline};
+		enum SamError err = sam_cmd(vis, line);
+		result = err == SAM_ERR_OK;
+		if (!result)
+			vis_info_show(vis, "%s", sam_error(err));
 
-	size_t len = strlen(line);
-	while (len > 0 && isspace((unsigned char)line[len-1]))
-		len--;
-	line[len] = '\0';
-
-	enum SamError err = sam_cmd(vis, line);
-	if (err != SAM_ERR_OK)
-		vis_info_show(vis, "%s", sam_error(err));
-	free(line);
-	return err == SAM_ERR_OK;
+		if (vis->sam.log.len) {
+			vis_message_show(vis, buffer_content0(&vis->sam.log));
+			vis->sam.log.len = 0;
+		}
+	}
+	return result;
 }
 
 void vis_file_snapshot(Vis *vis, File *file) {

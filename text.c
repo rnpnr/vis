@@ -11,7 +11,6 @@
 #include <limits.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/mman.h>
 
 #include "text.h"
 #include "text-util.h"

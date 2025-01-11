@@ -19,14 +19,17 @@ typedef struct Win Win;
 #define CONFIG_HELP 1
 #endif
 
+/* TODO(rnp): cleanup */
 #if CONFIG_HELP
 #define VIS_HELP_DECL(x) x
 #define VIS_HELP_USE(x) x
 #define VIS_HELP(x) (x),
+#define SAM_HELP(x) s8(x)
 #else
 #define VIS_HELP_DECL(x)
 #define VIS_HELP_USE(x) NULL
 #define VIS_HELP(x)
+#define SAM_HELP(x) s8("")
 #endif
 
 /* simplify utility renames by distribution packagers */
@@ -42,7 +45,7 @@ typedef struct Win Win;
 
 /** Union used to pass arguments to key action functions. */
 typedef union {
-	bool b;
+	b32 b;
 	int i;
 	const char *s;
 	const void *v;
@@ -783,10 +786,10 @@ typedef bool (VisCommandFunction)(Vis*, Win*, void *data, bool force,
  * .. note:: Any unique prefix of the command name will invoke the command.
  * @endrst
  */
-bool vis_cmd_register(Vis*, const char *name, const char *help, void *context, VisCommandFunction*);
+b32 vis_cmd_register(Vis*, const char *name, const char *help, void *context, VisCommandFunction*);
 
 /** Unregister ``:``-command. */
-bool vis_cmd_unregister(Vis*, const char *name);
+b32 vis_cmd_unregister(Vis*, const char *name);
 
 /**
  * @}

@@ -16,14 +16,14 @@
  * REPRESENTATION OR WARRANTY OF ANY KIND CONCERNING THE MERCHANTABILITY
  * OF THIS SOFTWARE OR ITS FITNESS FOR ANY PARTICULAR PURPOSE.
  */
-#include <string.h>
-#include <strings.h>
-#include <stdio.h>
+#define _GNU_SOURCE
 #include <ctype.h>
 #include <errno.h>
-#include <unistd.h>
-#include <limits.h>
 #include <fcntl.h>
+#include <limits.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
 
 #include "util.h"
 #include "sam.h"
@@ -34,11 +34,51 @@
 #include "text-objects.h"
 #include "text-regex.h"
 
-#define MAX_ARGV 8
+/* TODO(rnp): replace with a bit-table (we only need 1 u64) */
+#define IS_SAM_COMMAND(cp) \
+((cp) == 'a' || (cp) == 'i' || (cp) == 'c' || (cp) == 'x' || (cp) == 'y' || (cp) == 'v' || \
+ (cp) == 'g' || (cp) == 's' || (cp) == 'X' || (cp) == 'Y' || (cp) == 'e' || (cp) == 'r' || \
+ (cp) == 'w' || (cp) == 'q')
 
-typedef struct Address Address;
-typedef struct Command Command;
-typedef struct CommandDef CommandDef;
+/* TODO(rnp): there are probably more (bit-table as well) */
+#define IS_SAM_DELIMITER(cp) \
+((cp) == '/' || (cp) == '!' || (cp) == ';' || (cp) == ':' || (cp) == '%' || (cp) == '#' || \
+ (cp) == '?' || (cp) == ',' || (cp) == '.' || (cp) == '+' || (cp) == '-' || (cp) == '=' || \
+ (cp) == '\'')
+
+#define IS_SAM_ADDRESS_DELIMITER(cp) ((cp) == ';' || (cp) == ',' || (cp) == '+' || (cp) == '-')
+
+#define SAM_TOKEN_TYPES \
+	X(ST_INVALID)     \
+	X(ST_DELIMITER)   \
+	X(ST_GROUP_END)   \
+	X(ST_GROUP_START) \
+	X(ST_NUMBER)      \
+	X(ST_STRING)
+
+#define X(name) name,
+typedef enum { SAM_TOKEN_TYPES } SamTokenType;
+#undef X
+
+#define X(name) s8(#name),
+static s8 sam_token_types[] = { SAM_TOKEN_TYPES };
+#undef X
+
+typedef struct {
+	u8  *start;
+	u32  length;
+	SamTokenType type;
+} SamToken;
+
+typedef struct {
+	SamToken *tokens;
+	Arena    *backing;
+	s8        raw; /* raw string for error reporting */
+	i32       count;
+	i32       read_index;
+} SamTokenStream;
+
+#define MAX_ARGV 8
 
 struct Change {
 	enum ChangeType {
@@ -55,34 +95,47 @@ struct Change {
 	int count;         /* how often should data be inserted? */
 };
 
-struct Address {
-	char type;      /* # (char) l (line) g (goto line) / ? . $ + - , ; % ' */
-	Regex *regex;   /* NULL denotes default for x, y, X, and Y commands */
-	size_t number;  /* line or character number */
-	Address *left;  /* left hand side of a compound address , ; */
-	Address *right; /* either right hand side of a compound address or next address */
-};
+/* TODO(rnp): remove AT_REGEX, it belongs to Command */
+typedef enum {
+	AT_INVALID,
+	AT_BYTE,
+	AT_CHARACTER,
+	AT_LINE,
+	AT_MARK,
+	AT_REGEX_BACKWARD,
+	AT_REGEX_FORWARD,
+} AddressSideType;
+
+typedef struct {
+	union {
+		size_t        number;
+		u32           character;
+		enum VisMark  mark;
+		Regex        *regex; /* NULL for default regex (TODO(rnp): which is???) */
+	} u;
+	AddressSideType type;
+} AddressSide;
+
+typedef struct {
+	AddressSide left, right;
+	u32 delimeter;
+} Address;
 
 typedef struct {
 	int start, end; /* interval [n,m] */
 	bool mod;       /* % every n-th match, implies n == m */
 } Count;
 
-struct Command {
-	const char *argv[MAX_ARGV];/* [0]=cmd-name, [1..MAX_ARGV-2]=arguments, last element always NULL */
-	Address *address;         /* range of text for command */
-	Regex *regex;             /* regex to match, used by x, y, g, v, X, Y */
-	const CommandDef *cmddef; /* which command is this? */
-	Count count;              /* command count, defaults to [0,+inf] */
-	int iteration;            /* current command loop iteration */
-	char flags;               /* command specific flags */
-	Command *cmd;             /* target of x, y, g, v, X, Y, { */
-	Command *next;            /* next command in {} group */
-};
+typedef struct Command Command;
 
-struct CommandDef {
-	const char *name;                    /* command name */
-	VIS_HELP_DECL(const char *help;)     /* short, one-line help text */
+#define SAM_CMD_FN(name) b32 name(Vis *vis, Win *win, Command *command, SamTokenStream *sts, \
+                                  Selection *selection, Filerange *range)
+typedef SAM_CMD_FN(sam_command_fn);
+
+typedef struct {
+	s8 name;        /* command name */
+	s8 help;        /* short, one-line help text */
+	sam_command_fn *fn; /* command implementation */
 	enum {
 		CMD_NONE          = 0,       /* standalone command without any arguments */
 		CMD_CMD           = 1 << 0,  /* does the command take a sub/target command? */
@@ -101,177 +154,259 @@ struct CommandDef {
 		CMD_ARGV          = 1 << 13, /* whether shell like argument splitting is desired */
 		CMD_ONCE          = 1 << 14, /* command should only be executed once, not for every selection */
 		CMD_LOOP          = 1 << 15, /* a looping construct like `x`, `y` */
-		CMD_GROUP         = 1 << 16, /* a command group { ... } */
-		CMD_DESTRUCTIVE   = 1 << 17, /* command potentially destroys window */
+		CMD_DESTRUCTIVE   = 1 << 16, /* command potentially destroys window */
+		CMD_WIN           = 1 << 17, /* command requires an active window */
 	} flags;
-	const char *defcmd;                  /* name of a default target command */
-	bool (*func)(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*); /* command implementation */
+} CommandDef;
+
+struct Command {
+	Address address;          /* range of text for command */
+	Regex *regex;             /* regex to match, used by x, y, g, v, X, Y */
+	CommandDef *definition;   /* which command is this? */
+	Count count;              /* command count, defaults to [0,+inf] */
+	int iteration;            /* current command loop iteration */
+	char **args;
+	union {
+		s8 s8;
+	} u;
+	b32 force;
+	Command *cmd;             /* target of x, y, g, v, X, Y, { */
+	Command *next;            /* next command in {} group */
+	Command *prev;
 };
 
 /* sam commands */
-static bool cmd_insert(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_append(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_change(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_delete(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_guard(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_extract(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_select(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_print(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_files(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_pipein(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_pipeout(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_filter(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_launch(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_substitute(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_write(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_read(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_edit(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_quit(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_cd(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
+static SAM_CMD_FN(command_insert);
+static SAM_CMD_FN(command_append);
+static SAM_CMD_FN(command_change);
+static SAM_CMD_FN(command_delete);
+static SAM_CMD_FN(command_guard);
+static SAM_CMD_FN(command_extract);
+static SAM_CMD_FN(command_print);
+static SAM_CMD_FN(command_files);
+static SAM_CMD_FN(command_pipein);
+static SAM_CMD_FN(command_pipeout);
+static SAM_CMD_FN(command_filter);
+static SAM_CMD_FN(command_launch);
+static SAM_CMD_FN(command_substitute);
+static SAM_CMD_FN(command_write);
+static SAM_CMD_FN(command_read);
+static SAM_CMD_FN(command_edit);
+static SAM_CMD_FN(command_quit);
+static SAM_CMD_FN(command_cd);
 /* vi(m) commands */
-static bool cmd_set(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_open(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_qall(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_split(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_vsplit(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_new(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_vnew(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_wq(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_earlier_later(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_help(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_map(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_unmap(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_langmap(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
-static bool cmd_user(Vis*, Win*, Command*, const char *argv[], Selection*, Filerange*);
+static SAM_CMD_FN(command_set);
+static SAM_CMD_FN(command_open);
+static SAM_CMD_FN(command_qall);
+static SAM_CMD_FN(command_split);
+static SAM_CMD_FN(command_vsplit);
+static SAM_CMD_FN(command_new);
+static SAM_CMD_FN(command_vnew);
+static SAM_CMD_FN(command_wq);
+static SAM_CMD_FN(command_earlier_later);
+static SAM_CMD_FN(command_help);
+static SAM_CMD_FN(command_map);
+static SAM_CMD_FN(command_unmap);
+static SAM_CMD_FN(command_langmap);
+static SAM_CMD_FN(command_user);
 
-static const CommandDef cmds[] = {
-	//      name            help
-	//      flags, default command, implementation
+/* TODO(rnp): cleanup */
+static SAM_CMD_FN(sam_execute);
+
+static const CommandDef command_definition_table[] = {
 	{
-		"a",            VIS_HELP("Append text after range")
-		CMD_TEXT, NULL, cmd_append
+		.name  = s8("a"),
+		.help  = SAM_HELP("Append text after range"),
+		.fn    = command_append,
+		.flags = CMD_TEXT|CMD_WIN,
 	}, {
-		"c",            VIS_HELP("Change text in range")
-		CMD_TEXT, NULL, cmd_change
+		.name  = s8("c"),
+		.help  = SAM_HELP("Change text in range"),
+		.fn    = command_change,
+		.flags = CMD_TEXT|CMD_WIN,
 	}, {
-		"d",            VIS_HELP("Delete text in range")
-		CMD_NONE, NULL, cmd_delete
+		.name  = s8("d"),
+		.help  = SAM_HELP("Delete text in range"),
+		.fn    = command_delete,
+		.flags = CMD_WIN,
 	}, {
-		"g",            VIS_HELP("If range contains regexp, run command")
-		CMD_COUNT|CMD_REGEX|CMD_CMD, "p", cmd_guard
+		.name  = s8("g"),
+		.help  = SAM_HELP("If range contains regexp, run command"),
+		.fn    = command_guard,
+		.flags = CMD_COUNT|CMD_REGEX|CMD_CMD|CMD_WIN,
 	}, {
-		"i",            VIS_HELP("Insert text before range")
-		CMD_TEXT, NULL, cmd_insert
+		.name  = s8("i"),
+		.help  = SAM_HELP("Insert text before range"),
+		.fn    = command_insert,
+		.flags = CMD_TEXT|CMD_WIN,
 	}, {
-		"p",            VIS_HELP("Create selection covering range")
-		CMD_NONE, NULL, cmd_print
+		.name  = s8("p"),
+		.help  = SAM_HELP("Create selection covering range"),
+		.fn    = command_print,
+		.flags = CMD_WIN,
 	}, {
-		"s",            VIS_HELP("Substitute: use x/pattern/ c/replacement/ instead")
-		CMD_SHELL|CMD_ADDRESS_LINE, NULL, cmd_substitute
+		.name  = s8("s"),
+		.help  = SAM_HELP("Substitute: use x/pattern/ c/replacement/ instead"),
+		.fn    = command_substitute,
+		.flags = CMD_SHELL,
 	}, {
-		"v",            VIS_HELP("If range does not contain regexp, run command")
-		CMD_COUNT|CMD_REGEX|CMD_CMD, "p", cmd_guard
+		.name  = s8("v"),
+		.help  = SAM_HELP("If range does not contain regexp, run command"),
+		.fn    = command_guard,
+		.flags = CMD_COUNT|CMD_REGEX|CMD_CMD,
 	}, {
-		"x",            VIS_HELP("Set range and run command on each match")
-		CMD_CMD|CMD_REGEX|CMD_REGEX_DEFAULT|CMD_ADDRESS_ALL_1CURSOR|CMD_LOOP, "p", cmd_extract
+		.name  = s8("x"),
+		.help  = SAM_HELP("Set range and run command on each match"),
+		.fn    = command_extract,
+		.flags = CMD_CMD|CMD_REGEX|CMD_REGEX_DEFAULT|CMD_ADDRESS_ALL_1CURSOR|CMD_LOOP|CMD_WIN,
 	}, {
-		"y",            VIS_HELP("As `x` but select unmatched text")
-		CMD_CMD|CMD_REGEX|CMD_ADDRESS_ALL_1CURSOR|CMD_LOOP, "p", cmd_extract
+		.name  = s8("y"),
+		.help  = SAM_HELP("As `x` but select unmatched text"),
+		.fn    = command_extract,
+		.flags = CMD_CMD|CMD_REGEX|CMD_ADDRESS_ALL_1CURSOR|CMD_LOOP|CMD_WIN,
 	}, {
-		"X",            VIS_HELP("Run command on files whose name matches")
-		CMD_CMD|CMD_REGEX|CMD_REGEX_DEFAULT|CMD_ADDRESS_NONE|CMD_ONCE, NULL, cmd_files
+		.name  = s8("X"),
+		.help  = SAM_HELP("Run command on files whose name matches"),
+		.fn    = command_files,
+		.flags = CMD_CMD|CMD_REGEX|CMD_REGEX_DEFAULT|CMD_ADDRESS_NONE|CMD_ONCE,
 	}, {
-		"Y",            VIS_HELP("As `X` but select unmatched files")
-		CMD_CMD|CMD_REGEX|CMD_ADDRESS_NONE|CMD_ONCE, NULL, cmd_files
+		.name  = s8("Y"),
+		.help  = SAM_HELP("As `X` but select unmatched files"),
+		.fn    = command_files,
+		.flags = CMD_CMD|CMD_REGEX|CMD_ADDRESS_NONE|CMD_ONCE,
 	}, {
-		">",            VIS_HELP("Send range to stdin of command")
-		CMD_SHELL|CMD_ADDRESS_LINE, NULL, cmd_pipeout
+		.name  = s8(">"),
+		.help  = SAM_HELP("Send range to stdin of command"),
+		.fn    = command_pipeout,
+		.flags = CMD_SHELL|CMD_ADDRESS_LINE|CMD_WIN,
 	}, {
-		"<",            VIS_HELP("Replace range by stdout of command")
-		CMD_SHELL|CMD_ADDRESS_POS, NULL, cmd_pipein
+		.name  = s8("<"),
+		.help  = SAM_HELP("Replace range by stdout of command"),
+		.fn    = command_pipein,
+		.flags = CMD_SHELL|CMD_ADDRESS_POS|CMD_WIN,
 	}, {
-		"|",            VIS_HELP("Pipe range through command")
-		CMD_SHELL, NULL, cmd_filter
+		.name  = s8("|"),
+		.help  = SAM_HELP("Pipe range through command"),
+		.fn    = command_filter,
+		.flags = CMD_SHELL|CMD_WIN,
 	}, {
-		"!",            VIS_HELP("Run the command")
-		CMD_SHELL|CMD_ONCE|CMD_ADDRESS_NONE, NULL, cmd_launch
+		.name  = s8("!"),
+		.help  = SAM_HELP("Run the command"),
+		.fn    = command_launch,
+		.flags = CMD_SHELL|CMD_ONCE|CMD_ADDRESS_NONE|CMD_WIN,
 	}, {
-		"w",            VIS_HELP("Write range to named file")
-		CMD_ARGV|CMD_FORCE|CMD_ONCE|CMD_ADDRESS_ALL, NULL, cmd_write
+		.name  = s8("w"),
+		.help  = SAM_HELP("Write range to named file"),
+		.fn    = command_write,
+		.flags = CMD_ARGV|CMD_FORCE|CMD_ONCE|CMD_ADDRESS_ALL|CMD_WIN,
 	}, {
-		"r",            VIS_HELP("Replace range by contents of file")
-		CMD_ARGV|CMD_ADDRESS_AFTER, NULL, cmd_read
+		.name  = s8("r"),
+		.help  = SAM_HELP("Replace range by contents of file"),
+		.fn    = command_read,
+		.flags = CMD_ARGV|CMD_ADDRESS_AFTER,
 	}, {
-		"{",            VIS_HELP("Start of command group")
-		CMD_GROUP, NULL, NULL
+		.name  = s8("e"),
+		.help  = SAM_HELP("Edit file"),
+		.fn    = command_edit,
+		.flags = CMD_ARGV|CMD_FORCE|CMD_ONCE|CMD_ADDRESS_NONE|CMD_DESTRUCTIVE|CMD_WIN,
 	}, {
-		"}",            VIS_HELP("End of command group" )
-		CMD_NONE, NULL, NULL
+		.name  = s8("q"),
+		.help  = SAM_HELP("Quit the current window"),
+		.fn    = command_quit,
+		.flags = CMD_ARGV|CMD_FORCE|CMD_ONCE|CMD_ADDRESS_NONE|CMD_DESTRUCTIVE,
 	}, {
-		"e",            VIS_HELP("Edit file")
-		CMD_ARGV|CMD_FORCE|CMD_ONCE|CMD_ADDRESS_NONE|CMD_DESTRUCTIVE, NULL, cmd_edit
-	}, {
-		"q",            VIS_HELP("Quit the current window")
-		CMD_ARGV|CMD_FORCE|CMD_ONCE|CMD_ADDRESS_NONE|CMD_DESTRUCTIVE, NULL, cmd_quit
-	}, {
-		"cd",           VIS_HELP("Change directory")
-		CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE, NULL, cmd_cd
+		.name  = s8("cd"),
+		.help  = SAM_HELP("Change directory"),
+		.fn    = command_cd,
+		.flags = CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE,
 	},
 	/* vi(m) related commands */
 	{
-		"help",         VIS_HELP("Show this help")
-		CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE, NULL, cmd_help
+		.name  = s8("help"),
+		.help  = SAM_HELP("Show this help"),
+		.fn    = command_help,
+		.flags = CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE,
 	}, {
-		"map",          VIS_HELP("Map key binding `:map <mode> <lhs> <rhs>`")
-		CMD_ARGV|CMD_FORCE|CMD_ONCE|CMD_ADDRESS_NONE, NULL, cmd_map
+		.name  = s8("map"),
+		.help  = SAM_HELP("Map key binding `:map <mode> <lhs> <rhs>`"),
+		.fn    = command_map,
+		.flags = CMD_ARGV|CMD_FORCE|CMD_ONCE|CMD_ADDRESS_NONE,
 	}, {
-		"map-window",   VIS_HELP("As `map` but window local")
-		CMD_ARGV|CMD_FORCE|CMD_ONCE|CMD_ADDRESS_NONE, NULL, cmd_map
+		.name  = s8("map-window"),
+		.help  = SAM_HELP("As `map` but window local"),
+		.fn    = command_map,
+		.flags = CMD_ARGV|CMD_FORCE|CMD_ONCE|CMD_ADDRESS_NONE,
 	}, {
-		"unmap",        VIS_HELP("Unmap key binding `:unmap <mode> <lhs>`")
-		CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE, NULL, cmd_unmap
+		.name  = s8("unmap"),
+		.help  = SAM_HELP("Unmap key binding `:unmap <mode> <lhs>`"),
+		.fn    = command_unmap,
+		.flags = CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE,
 	}, {
-		"unmap-window", VIS_HELP("As `unmap` but window local")
-		CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE, NULL, cmd_unmap
+		.name  = s8("unmap-window"),
+		.help  = SAM_HELP("`unmap` for window local bindings"),
+		.fn    = command_unmap,
+		.flags = CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE|CMD_WIN,
 	}, {
-		"langmap",      VIS_HELP("Map keyboard layout `:langmap <locale-keys> <latin-keys>`")
-		CMD_ARGV|CMD_FORCE|CMD_ONCE|CMD_ADDRESS_NONE, NULL, cmd_langmap
+		.name  = s8("langmap"),
+		.help  = SAM_HELP("Map keyboard layout `:langmap <locale-keys> <latin-keys>`"),
+		.fn    = command_langmap,
+		.flags = CMD_ARGV|CMD_FORCE|CMD_ONCE|CMD_ADDRESS_NONE,
 	}, {
-		"new",          VIS_HELP("Create new window")
-		CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE, NULL, cmd_new
+		.name  = s8("new"),
+		.help  = SAM_HELP("Create new window"),
+		.fn    = command_new,
+		.flags = CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE,
 	}, {
-		"open",         VIS_HELP("Open file")
-		CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE, NULL, cmd_open
+		.name  = s8("open"),
+		.help  = SAM_HELP("Open file"),
+		.fn    = command_open,
+		.flags = CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE,
 	}, {
-		"qall",         VIS_HELP("Exit vis")
-		CMD_ARGV|CMD_FORCE|CMD_ONCE|CMD_ADDRESS_NONE|CMD_DESTRUCTIVE, NULL, cmd_qall
+		.name  = s8("qall"),
+		.help  = SAM_HELP("Exit vis"),
+		.fn    = command_qall,
+		.flags = CMD_ARGV|CMD_FORCE|CMD_ONCE|CMD_ADDRESS_NONE|CMD_DESTRUCTIVE,
 	}, {
-		"set",          VIS_HELP("Set option")
-		CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE, NULL, cmd_set
+		.name  = s8("set"),
+		.help  = SAM_HELP("Set option"),
+		.fn    = command_set,
+		.flags = CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE,
 	}, {
-		"split",        VIS_HELP("Horizontally split window")
-		CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE, NULL, cmd_split
+		.name  = s8("split"),
+		.help  = SAM_HELP("Horizontally split window"),
+		.fn    = command_split,
+		.flags = CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE|CMD_WIN,
 	}, {
-		"vnew",         VIS_HELP("As `:new` but split vertically")
-		CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE, NULL, cmd_vnew
+		.name  = s8("vnew"),
+		.help  = SAM_HELP("As `:new` but split vertically"),
+		.fn    = command_vnew,
+		.flags = CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE,
 	}, {
-		"vsplit",       VIS_HELP("Vertically split window")
-		CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE, NULL, cmd_vsplit
+		.name  = s8("vsplit"),
+		.help  = SAM_HELP("Vertically split window"),
+		.fn    = command_vsplit,
+		.flags = CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE|CMD_WIN,
 	}, {
-		"wq",           VIS_HELP("Write file and quit")
-		CMD_ARGV|CMD_FORCE|CMD_ONCE|CMD_ADDRESS_ALL|CMD_DESTRUCTIVE, NULL, cmd_wq
+		.name  = s8("wq"),
+		.help  = SAM_HELP("Write file and quit"),
+		.fn    = command_wq,
+		.flags = CMD_ARGV|CMD_FORCE|CMD_ONCE|CMD_ADDRESS_ALL|CMD_DESTRUCTIVE|CMD_WIN,
 	}, {
-		"earlier",      VIS_HELP("Go to older text state")
-		CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE, NULL, cmd_earlier_later
+		.name  = s8("earlier"),
+		.help  = SAM_HELP("Go to older text state"),
+		.fn    = command_earlier_later,
+		.flags = CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE|CMD_WIN,
 	}, {
-		"later",        VIS_HELP("Go to newer text state")
-		CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE, NULL, cmd_earlier_later
+		.name  = s8("later"),
+		.help  = SAM_HELP("Go to newer text state"),
+		.fn    = command_earlier_later,
+		.flags = CMD_ARGV|CMD_ONCE|CMD_ADDRESS_NONE|CMD_WIN,
 	},
-	{ NULL, VIS_HELP(NULL) CMD_NONE, NULL, NULL },
 };
 
-static const CommandDef cmddef_select = {
-	NULL, VIS_HELP(NULL) CMD_NONE, NULL, cmd_select
+static const CommandDef command_definitions_for_help[] = {
+	{.name  = s8("{"), .help  = SAM_HELP("Start of command group")},
+	{.name  = s8("}"), .help  = SAM_HELP("End of command group")},
 };
 
 /* :set command options */
@@ -415,21 +550,299 @@ static const OptionDef options[] = {
 	},
 };
 
-bool sam_init(Vis *vis) {
-	if (!(vis->cmds = map_new()))
-		return false;
-	bool ret = true;
-	for (const CommandDef *cmd = cmds; cmd && cmd->name; cmd++)
-		ret &= map_put(vis->cmds, cmd->name, cmd);
+static s8
+consume(s8 raw, u32 count)
+{
+	ASSERT(raw.len >= count);
+	raw.data += count;
+	raw.len  -= count;
+	return raw;
+}
 
-	if (!(vis->options = map_new()))
-		return false;
-	for (int i = 0; i < LENGTH(options); i++) {
-		for (const char *const *name = options[i].names; *name; name++)
-			ret &= map_put(vis->options, *name, &options[i]);
+static u32
+peek(s8 raw)
+{
+	u32 result = (u32)-1;
+	if (raw.len > 0)
+		result = raw.data[0];
+	return result;
+}
+
+static s8
+consume_digits(s8 raw)
+{
+	ix count;
+	for (count = 0; count < raw.len && ISDIGIT(raw.data[count]); count++)
+		;
+	return consume(raw, count);
+}
+
+static s8
+sam_token_to_s8(SamToken token)
+{
+	s8 result = {.len = token.length, .data = token.start};
+	return result;
+}
+
+static void
+sam_token_print(Buffer *buffer, SamToken t)
+{
+	s8 type = s8("\n  type: ");
+	buffer_append(buffer, t.start, t.length);
+	buffer_append(buffer, type.data, type.len);
+	buffer_append(buffer, sam_token_types[t.type].data, sam_token_types[t.type].len);
+	buffer_append(buffer, "\n", 1);
+}
+
+static void __attribute__((format(printf, 4, 5)))
+sam_error_at(Buffer *buffer, SamTokenStream *s, SamToken token, const char *fmt, ...)
+{
+	ix padding = token.start - s->raw.data;
+	if (padding < 0) padding = s->raw.len;
+	s8  header  = s8("---Sam Error---\n");
+	buffer_append(buffer, header.data, header.len);
+	buffer_append(buffer, s->raw.data, s->raw.len);
+	buffer_appendf(buffer, "\n%*s^\n%*s", (i32)padding, "", (i32)padding, "");
+	va_list ap;
+	va_start(ap, fmt);
+	buffer_vappendf(buffer, fmt, ap);
+	va_end(ap);
+	/* TODO(rnp): fix buffer_appendf */
+	buffer->len--;
+	buffer_append(buffer, "\n", 1);
+}
+
+static SamToken
+sam_token_peek(SamTokenStream *s)
+{
+	SamToken result = {.type = ST_INVALID};
+	if (s->read_index < s->count)
+		result = s->tokens[s->read_index];
+	return result;
+}
+
+static SamToken
+sam_token_pop(SamTokenStream *s)
+{
+	SamToken result = {.type = ST_INVALID};
+	if (s->read_index < s->count)
+		result = s->tokens[s->read_index++];
+	return result;
+}
+
+static void
+sam_token_push(SamTokenStream *s, SamToken tok)
+{
+	if (tok.length > 0) {
+		*(push_struct(s->backing, SamToken)) = tok;
+		s->count++;
+	}
+}
+
+static SamToken *
+sam_token_at(SamTokenStream *s, u32 type, s8 raw)
+{
+	SamToken *result = 0;
+	if (raw.len) {
+		result         = push_struct(s->backing, SamToken);
+		result->start  = raw.data;
+		result->type   = type;
+		result->length = 1;
+		s->count++;
+	}
+	return result;
+}
+
+static SamToken
+sam_token_join(SamToken a, SamToken b)
+{
+	ASSERT(a.start + a.length == b.start);
+	SamToken result  = a;
+	result.length   += b.length;
+	return result;
+}
+
+static SamToken
+sam_token_join_command_name(SamTokenStream *s, SamToken start)
+{
+	SamToken result = start;
+	s8 command = {.len = s->raw.len - (start.start - s->raw.data), .data = start.start};
+
+	ix end = start.length;
+	for (b32 valid = 1; end < command.len; end++) {
+		u32 cp = command.data[end];
+		valid &= !ISSPACE(cp) && !ISDIGIT(cp) && (!ISPUNCT(cp) || cp == '_');
+		if (!valid && cp == '-')
+			valid = end + 1 < command.len;
+		if (!valid)
+			break;
 	}
 
-	return ret;
+	while (result.length != end)
+		result.length += sam_token_pop(s).length;
+
+	return result;
+}
+
+
+static SamToken
+sam_token_try_pop_number(SamTokenStream *s)
+{
+	SamToken result = {.start = sam_token_peek(s).start};
+	if (sam_token_peek(s).type == ST_DELIMITER) {
+		u8 cp = *sam_token_peek(s).start;
+		if (cp == '+' || cp == '-')
+			result = sam_token_join(result, sam_token_pop(s));
+	}
+	if (sam_token_peek(s).type == ST_NUMBER) {
+		result      = sam_token_join(result, sam_token_pop(s));
+		result.type = ST_NUMBER;
+	}
+	return result;
+}
+
+static b32
+sam_token_check_pop_force_flag(SamTokenStream *s)
+{
+	b32 result = sam_token_peek(s).type == ST_DELIMITER && *sam_token_peek(s).start == '!';
+	if (result)
+		sam_token_pop(s);
+	return result;
+}
+
+static SamToken
+sam_tokens_join_until_space(SamTokenStream *s)
+{
+	SamToken result = {.start = sam_token_peek(s).start};
+	while (sam_token_peek(s).type != ST_INVALID) {
+		if (result.start + result.length != sam_token_peek(s).start)
+			break;
+		result = sam_token_join(result, sam_token_pop(s));
+	}
+	if (result.length)
+		result.type = ST_STRING;
+	return result;
+}
+
+static SamToken
+sam_delimited_string(SamTokenStream *s)
+{
+	SamToken result = {0};
+	if (sam_token_peek(s).type == ST_DELIMITER) {
+		SamToken delimiter = sam_token_pop(s);
+		result.start = sam_token_peek(s).start;
+		while (sam_token_peek(s).type != ST_INVALID) {
+			SamToken token = sam_token_pop(s);
+			/* TODO(rnp): make sure delimiter is not escaped */
+			if (token.type == ST_DELIMITER && *token.start == *delimiter.start) {
+				result.length = token.start - result.start;
+				break;
+			}
+		}
+		if (result.start && !result.length)
+			result.length = s->raw.len - (result.start - s->raw.data);
+		if (result.length)
+			result.type = ST_STRING;
+	}
+	return result;
+}
+
+static char **
+sam_tokens_to_argv(Arena *arena, SamTokenStream *s)
+{
+	/* NOTE(rnp): allocates some extra space but this method is simple */
+	char **result = alloc(arena, char *, MAX(1, s->count - s->read_index + 1));
+	i32    count  = 0;
+
+	while (sam_token_peek(s).type != ST_INVALID) {
+		s8 arg = sam_token_to_s8(sam_tokens_join_until_space(s));
+		/* TODO(rnp): unescape string */
+		result[count++] = (char *)push_s8_zero(arena, arg).data;
+	}
+
+	return result;
+}
+
+static void
+sam_lex(SamTokenStream *s, s8 raw)
+{
+	SamToken accum = {.start = raw.data, .type = ST_STRING};
+	while (raw.len > 0) {
+		u32 cp = peek(raw);
+		if (ISSPACE(cp)) {
+			sam_token_push(s, accum);
+
+			/* NOTE: whitespace can appear anywhere and is insignificant */
+			raw = consume(raw, 1);
+
+			accum = (SamToken){.start = raw.data, .type = ST_STRING};
+		} else if (ISDIGIT(cp)) {
+			sam_token_push(s, accum);
+
+			SamToken *token = sam_token_at(s, ST_NUMBER, raw);
+			raw = consume_digits(raw);
+			token->length = raw.data - token->start;
+
+			accum = (SamToken){.start = raw.data, .type = ST_STRING};
+		} else if (cp == '{') {
+			sam_token_push(s, accum);
+
+			sam_token_at(s, ST_GROUP_START, raw);
+			raw = consume(raw, 1);
+				raw = consume(raw, 1);
+
+			accum = (SamToken){.start = raw.data, .type = ST_STRING};
+		} else if (cp == '}') {
+			sam_token_push(s, accum);
+
+			sam_token_at(s, ST_GROUP_END, raw);
+			raw = consume(raw, 1);
+				raw = consume(raw, 1);
+
+			accum = (SamToken){.start = raw.data, .type = ST_STRING};
+		} else if ((cp == '>' || cp == '<' || cp == '|') && accum.length == 0) {
+			/* NOTE(rnp): special case for pipe commands at start of line */
+			accum.length++;
+			raw = consume(raw, 1);
+			sam_token_push(s, accum);
+			accum = (SamToken){.start = raw.data, .type = ST_STRING};
+		} else if (IS_SAM_DELIMITER(cp)) {
+			sam_token_push(s, accum);
+
+			sam_token_at(s, ST_DELIMITER, raw);
+			raw = consume(raw, 1);
+
+			accum = (SamToken){.start = raw.data, .type = ST_STRING};
+		} else {
+			accum.length++;
+			raw = consume(raw, 1);
+		}
+	}
+	sam_token_push(s, accum);
+}
+
+bool sam_init(Vis *vis) {
+	vis->sam.arena        = arena_new();
+	vis->sam.token_stream = arena_new();
+
+	b32 result = 0;
+	if ((vis->cmds = map_new())) {
+		result = 1;
+		for (u32 i = 0; i < ARRAY_COUNT(command_definition_table); i++) {
+			const CommandDef *definition = command_definition_table + i;
+			result &= map_put(vis->cmds, (char *)definition->name.data, definition);
+		}
+
+		if ((vis->options = map_new())) {
+			for (int i = 0; i < LENGTH(options); i++) {
+				for (const char *const *name = options[i].names; *name; name++)
+					result &= map_put(vis->options, *name, &options[i]);
+			}
+		} else {
+			result = 0;
+		}
+	}
+	return result;
 }
 
 const char *sam_error(enum SamError err) {
@@ -458,46 +871,44 @@ const char *sam_error(enum SamError err) {
 }
 
 static void change_free(Change *c) {
-	if (!c)
-		return;
-	free((char*)c->data);
-	free(c);
+	if (c) {
+		free((char*)c->data);
+		free(c);
+	}
 }
 
 static Change *change_new(Transcript *t, enum ChangeType type, Filerange *range, Win *win, Selection *sel) {
-	if (!text_range_valid(range))
-		return NULL;
-	Change **prev, *next;
-	if (t->latest && t->latest->range.end <= range->start) {
-		prev = &t->latest->next;
-		next = t->latest->next;
-	} else {
-		prev = &t->changes;
-		next = t->changes;
-	}
-	while (next && next->range.end <= range->start) {
-		prev = &next->next;
-		next = next->next;
-	}
-	if (next && next->range.start < range->end) {
-		t->error = SAM_ERR_CONFLICT;
-		return NULL;
-	}
-	Change *new = calloc(1, sizeof *new);
-	if (new) {
-		new->type = type;
-		new->range = *range;
-		new->sel = sel;
-		new->win = win;
-		new->next = next;
-		*prev = new;
-		t->latest = new;
-	}
-	return new;
-}
+	Change *result = 0;
+	if (text_range_valid(range)) {
+		Change **prev, *next;
+		if (t->latest && t->latest->range.end <= range->start) {
+			prev = &t->latest->next;
+			next = t->latest->next;
+		} else {
+			prev = &t->changes;
+			next = t->changes;
+		}
+		while (next && next->range.end <= range->start) {
+			prev = &next->next;
+			next = next->next;
+		}
 
-static void sam_transcript_init(Transcript *t) {
-	memset(t, 0, sizeof *t);
+		if (next && next->range.start < range->end) {
+			t->error = SAM_ERR_CONFLICT;
+		} else {
+			result = calloc(1, sizeof(*result));
+			if (result) {
+				result->type  = type;
+				result->range = *range;
+				result->sel   = sel;
+				result->win   = win;
+				result->next  = next;
+				*prev = result;
+				t->latest = result;
+			}
+		}
+	}
+	return result;
 }
 
 static bool sam_transcript_error(Transcript *t, enum SamError error) {
@@ -536,22 +947,6 @@ static bool sam_change(Win *win, Selection *sel, Filerange *range, const char *d
 		c->count = count;
 	}
 	return c;
-}
-
-static Address *address_new(void) {
-	Address *addr = calloc(1, sizeof *addr);
-	if (addr)
-		addr->number = EPOS;
-	return addr;
-}
-
-static void address_free(Address *addr) {
-	if (!addr)
-		return;
-	text_regex_free(addr->regex);
-	address_free(addr->left);
-	address_free(addr->right);
-	free(addr);
 }
 
 static void skip_spaces(const char **s) {
@@ -649,17 +1044,6 @@ static char *parse_text(const char **s, Count *count) {
 	return buf.data;
 }
 
-static char *parse_shellcmd(Vis *vis, const char **s) {
-	skip_spaces(s);
-	char *cmd = parse_until(s, "\n", NULL, false);
-	if (!cmd) {
-		const char *last_cmd = register_get(vis, &vis->registers[VIS_REG_SHELL], NULL);
-		return last_cmd ? strdup(last_cmd) : NULL;
-	}
-	register_put0(vis, &vis->registers[VIS_REG_SHELL], cmd);
-	return cmd;
-}
-
 static void parse_argv(const char **s, const char *argv[], size_t maxarg) {
 	for (size_t i = 0; i < maxarg; i++) {
 		skip_spaces(s);
@@ -670,188 +1054,119 @@ static void parse_argv(const char **s, const char *argv[], size_t maxarg) {
 	}
 }
 
-static bool valid_cmdname(const char *s) {
-	unsigned char c = (unsigned char)*s;
-	return c && !isspace(c) && !isdigit(c) && (!ispunct(c) || c == '_' || (c == '-' && valid_cmdname(s+1)));
-}
+static AddressSide
+parse_address_side(Vis *vis, SamTokenStream *sts, SamToken token)
+{
+	ASSERT(token.type == ST_NUMBER || token.type == ST_DELIMITER);
 
-static char *parse_cmdname(const char **s) {
-	Buffer buf = {0};
+	AddressSide result = {0};
 
-	skip_spaces(s);
-	while (valid_cmdname(*s))
-		buffer_append(&buf, (*s)++, 1);
-
-	buffer_terminate(&buf);
-
-	return buf.data;
-}
-
-static Regex *parse_regex(Vis *vis, const char **s) {
-	const char *before = *s;
-	char *pattern = parse_delimited(s, CMD_REGEX);
-	if (!pattern && *s == before)
-		return NULL;
-	Regex *regex = vis_regex(vis, pattern);
-	free(pattern);
-	return regex;
-}
-
-static enum SamError parse_count(const char **s, Count *count) {
-	count->mod = **s == '%';
-
-	if (count->mod) {
-		(*s)++;
-		int n = parse_number(s);
-		if (!n)
-			return SAM_ERR_COUNT;
-		count->start = n;
-		count->end = n;
-		return SAM_ERR_OK;
-	}
-
-	const char *before = *s;
-	if (!(count->start = parse_number(s)) && *s != before)
-		return SAM_ERR_COUNT;
-	if (**s != ',') {
-		count->end = count->start ? count->start : INT_MAX;
-		return SAM_ERR_OK;
+	if (token.type == ST_NUMBER) {
+		result.type     = AT_LINE;
+		result.u.number = s8_to_i64(sam_token_to_s8(token));
 	} else {
-		(*s)++;
-	}
-	before = *s;
-	if (!(count->end = parse_number(s)) && *s != before)
-		return SAM_ERR_COUNT;
-	if (!count->end)
-		count->end = INT_MAX;
-	return SAM_ERR_OK;
-}
+		switch (*token.start) {
+		case '#': /* character #n */
+			if (sam_token_peek(sts).type == ST_NUMBER) {
+				SamToken value  = sam_token_pop(sts);
+				result.type     = AT_BYTE;
+				result.u.number = s8_to_i64(sam_token_to_s8(value));
+			} else {
+				sam_error_at(&vis->sam.log, sts, sam_token_peek(sts),
+				             "expected byte position");
+			}
+			break;
+		case '\'': {
+			if (sam_token_peek(sts).type == ST_STRING) {
+				/* TODO(rnp): hack; one possible solution is to turn the
+				 * token stream into a single linked list (with an end pointer)
+				 * and split the token. Will review later if necessary */
+				char mark = sts->tokens[sts->read_index].start[0];
+				sts->tokens[sts->read_index].start++;
+				sts->tokens[sts->read_index].length--;
 
-static Address *address_parse_simple(Vis *vis, const char **s, enum SamError *err) {
-
-	skip_spaces(s);
-
-	Address addr = {
-		.type = **s,
-		.regex = NULL,
-		.number = EPOS,
-		.left = NULL,
-		.right = NULL,
-	};
-
-	switch (addr.type) {
-	case '#': /* character #n */
-		(*s)++;
-		addr.number = parse_number(s);
-		break;
-	case '0': case '1': case '2': case '3': case '4': /* line n */
-	case '5': case '6': case '7': case '8': case '9':
-		addr.type = 'l';
-		addr.number = parse_number(s);
-		break;
-	case '\'':
-		(*s)++;
-		if ((addr.number = vis_mark_from(vis, **s)) == VIS_MARK_INVALID) {
-			*err = SAM_ERR_MARK;
-			return NULL;
-		}
-		(*s)++;
-		break;
-	case '/': /* regexp forwards */
-	case '?': /* regexp backwards */
-		addr.regex = parse_regex(vis, s);
-		if (!addr.regex) {
-			*err = SAM_ERR_REGEX;
-			return NULL;
-		}
-		break;
-	case '$': /* end of file */
-	case '.':
-	case '+':
-	case '-':
-	case '%':
-		(*s)++;
-		break;
-	default:
-		return NULL;
-	}
-
-	if ((addr.right = address_parse_simple(vis, s, err))) {
-		switch (addr.right->type) {
-		case '.':
-		case '$':
-			return NULL;
-		case '#':
-		case 'l':
+				result.type   = AT_MARK;
+				result.u.mark = vis_mark_from(vis, mark);
+				if (result.u.mark == VIS_MARK_INVALID)
+					sam_error_at(&vis->sam.log, sts, sam_token_peek(sts),
+					             "invalid mark");
+			} else {
+				sam_error_at(&vis->sam.log, sts, sam_token_peek(sts), "expected mark");
+			}
+		} break;
 		case '/':
 		case '?':
-			if (addr.type != '+' && addr.type != '-') {
-				Address *plus = address_new();
-				if (!plus) {
-					address_free(addr.right);
-					return NULL;
-				}
-				plus->type = '+';
-				plus->right = addr.right;
-				addr.right = plus;
+			if (sam_token_peek(sts).type != ST_INVALID) {
+				/* TODO(rnp): how do we join tokens here? */
+				/* TODO(rnp): this basically just unescapes the string */
+				//char *pattern = parse_delimited(s, CMD_REGEX);
+				SamToken value = sam_token_pop(sts);
+				s8 string      = push_s8_zero(&vis->sam.arena, sam_token_to_s8(value));
+				result.type    = *token.start == '/'? AT_REGEX_FORWARD
+				                                    : AT_REGEX_BACKWARD;
+				result.u.regex = vis_regex(vis, (char *)string.data);
 			}
+			if (!result.u.regex)
+				sam_error_at(&vis->sam.log, sts, sam_token_peek(sts),
+				             "expected regular expression");
+			break;
+		case '$':
+		case '.':
+		case '%':
+			result.type        = AT_CHARACTER;
+			result.u.character = *token.start;
 			break;
 		}
 	}
 
-	Address *ret = address_new();
-	if (!ret) {
-		address_free(addr.right);
-		return NULL;
-	}
-	*ret = addr;
-	return ret;
+	return result;
 }
 
-static Address *address_parse_compound(Vis *vis, const char **s, enum SamError *err) {
-	Address addr = { 0 }, *left = address_parse_simple(vis, s, err), *right = NULL;
-	skip_spaces(s);
-	addr.type = **s;
-	switch (addr.type) {
-	case ',': /* a1,a2 */
-	case ';': /* a1;a2 */
-		(*s)++;
-		right = address_parse_compound(vis, s, err);
-		if (right && (right->type == ',' || right->type == ';') && !right->left) {
-			*err = SAM_ERR_ADDRESS;
-			goto fail;
+static Address
+parse_address(Vis *vis, SamTokenStream *sts)
+{
+	Address result = {0};
+
+	SamToken test = sam_token_peek(sts);
+	u32 cp = (test.type == ST_DELIMITER)? *test.start : 0;
+	b32 valid_left = (test.type == ST_NUMBER) ||
+	                 (test.type == ST_DELIMITER && (cp && cp != '?' && cp != '/' && cp != '$'));
+	if (valid_left)
+		result.left = parse_address_side(vis, sts, sam_token_pop(sts));
+
+	test = sam_token_peek(sts);
+	if (test.type == ST_DELIMITER && IS_SAM_ADDRESS_DELIMITER(*test.start)) {
+		result.delimeter = *sam_token_pop(sts).start;
+	} else {
+		result.delimeter = ';';
+	}
+
+	test = sam_token_peek(sts);
+	if (test.type == ST_NUMBER || test.type == ST_DELIMITER)
+		result.right = parse_address_side(vis, sts, sam_token_pop(sts));
+
+	/* TODO(rnp): normalize address? */
+
+	return result;
+}
+
+static i32
+check_count(SamTokenStream *s, Buffer *log)
+{
+	i32 result = 1;
+	SamToken token = sam_token_try_pop_number(s);
+	if (token.type != ST_INVALID) {
+		i64 number = s8_to_i64(sam_token_to_s8(token));
+		if (number > 0 && number <= I32_MAX) {
+			result = number;
+		} else {
+			sam_error_at(log, s, token, "invalid count");
 		}
-		break;
-	default:
-		return left;
 	}
-
-	addr.left = left;
-	addr.right = right;
-
-	Address *ret = address_new();
-	if (ret) {
-		*ret = addr;
-		return ret;
-	}
-
-fail:
-	address_free(left);
-	address_free(right);
-	return NULL;
+	return result;
 }
 
-static Command *command_new(const char *name) {
-	Command *cmd = calloc(1, sizeof(Command));
-	if (!cmd)
-		return NULL;
-	if (name && !(cmd->argv[0] = strdup(name))) {
-		free(cmd);
-		return NULL;
-	}
-	return cmd;
-}
-
+#if 0
 static void command_free(Command *cmd) {
 	if (!cmd)
 		return;
@@ -861,108 +1176,86 @@ static void command_free(Command *cmd) {
 		command_free(c);
 	}
 
-	for (const char **args = cmd->argv; *args; args++)
-		free((void*)*args);
 	address_free(cmd->address);
 	text_regex_free(cmd->regex);
 	free(cmd);
 }
+#endif
 
-static const CommandDef *command_lookup(Vis *vis, const char *name) {
-	return map_closest(vis->cmds, name);
-}
+#if 0
+static Command *
+command_parse(Vis *vis, SamTokenStream *sts, enum SamError *err)
+{
+	/* TODO(rnp): at this point we should just go into the command proper.
+	 * it will have a better idea of what it needs where. we just need to
+	 * adjust the cmd nesting a little bit; we can also run the validate
+	 * functionality here with the nesting since we already know the commands */
 
-static Command *command_parse(Vis *vis, const char **s, enum SamError *err) {
-	if (!**s) {
-		*err = SAM_ERR_COMMAND;
-		return NULL;
-	}
-	Command *cmd = command_new(NULL);
-	if (!cmd)
-		return NULL;
-
-	cmd->address = address_parse_compound(vis, s, err);
-	skip_spaces(s);
-
-	cmd->argv[0] = parse_cmdname(s);
-
-	if (!cmd->argv[0]) {
-		char name[2] = { **s ? **s : 'p', '\0' };
-		if (**s)
-			(*s)++;
-		if (!(cmd->argv[0] = strdup(name)))
-			goto fail;
-	}
-
-	const CommandDef *cmddef = command_lookup(vis, cmd->argv[0]);
-	if (!cmddef) {
-		*err = SAM_ERR_COMMAND;
-		goto fail;
-	}
-
-	cmd->cmddef = cmddef;
-
-	if (strcmp(cmd->argv[0], "{") == 0) {
-		Command *prev = NULL, *next;
-		int level = vis->nesting_level++;
-		do {
-			while (**s == ' ' || **s == '\t' || **s == '\n')
-				(*s)++;
-			next = command_parse(vis, s, err);
-			if (*err)
-				goto fail;
-			if (prev)
-				prev->next = next;
-			else
-				cmd->cmd = next;
-		} while ((prev = next));
-		if (level != vis->nesting_level) {
-			*err = SAM_ERR_UNMATCHED_BRACE;
-			goto fail;
-		}
-	} else if (strcmp(cmd->argv[0], "}") == 0) {
-		if (vis->nesting_level-- == 0) {
-			*err = SAM_ERR_UNMATCHED_BRACE;
-			goto fail;
-		}
-		command_free(cmd);
-		return NULL;
-	}
-
-	if (cmddef->flags & CMD_ADDRESS_NONE && cmd->address) {
+	if (cmddef->flags & CMD_ADDRESS_NONE && cmd->address.left.type != AT_INVALID) {
 		*err = SAM_ERR_NO_ADDRESS;
 		goto fail;
 	}
 
-	if (cmddef->flags & CMD_FORCE && **s == '!') {
-		cmd->flags = '!';
-		(*s)++;
+	if (cmddef->flags & CMD_COUNT) {
+		SamTokenType test_type = sam_token_peek(sts).type;
+		if (test_type == ST_DELIMITER && *sam_token_peek(sts).start == '%') {
+			sam_token_pop(sts);
+			cmd->count.mod = 1;
+			test_type = sam_token_peek(sts).type;
+		}
+
+		if (cmd->count.mod) {
+			if (test_type == ST_NUMBER) {
+				i64 n = s8_to_i64(sam_token_to_s8(sam_token_pop(sts)));
+				cmd->count.start = n;
+				cmd->count.end   = n;
+			} else {
+				/* TODO(rnp): (append_count_error) expected count at ... */
+				*err = SAM_ERR_COUNT;
+				goto fail;
+			}
+		} else {
+			if (test_type != ST_NUMBER) {
+				*err = SAM_ERR_COUNT;
+				goto fail;
+			}
+			cmd->count.start = s8_to_i64(sam_token_to_s8(sam_token_pop(sts)));
+			test_type        = sam_token_peek(sts).type;
+
+			if (test_type == ST_DELIMITER && *sam_token_peek(sts).start != ',') {
+				cmd->count.end = cmd->count.start ? cmd->count.start : INT_MAX;
+			} else {
+				if (test_type != ST_NUMBER) {
+					*err = SAM_ERR_COUNT;
+					goto fail;
+				}
+				cmd->count.end = s8_to_i64(sam_token_to_s8(sam_token_pop(sts)));
+			}
+			if (!cmd->count.end) cmd->count.end = INT_MAX;
+		}
+		*err = 0;
 	}
 
-	if ((cmddef->flags & CMD_COUNT) && (*err = parse_count(s, &cmd->count)))
-		goto fail;
-
 	if (cmddef->flags & CMD_REGEX) {
-		if ((cmddef->flags & CMD_REGEX_DEFAULT) && (!**s || **s == ' ')) {
-			skip_spaces(s);
-		} else {
-			const char *before = *s;
-			cmd->regex = parse_regex(vis, s);
-			if (!cmd->regex && (*s != before || !(cmddef->flags & CMD_COUNT))) {
+		if (!(cmddef->flags & CMD_REGEX_DEFAULT)) {
+			if (sam_token_peek(sts).type == ST_STRING) {
+				/* TODO(rnp): this basically just unescapes the string */
+				//char *pattern = parse_delimited(s, CMD_REGEX);
+				SamToken token = sam_token_pop(sts);
+				s8 string      = sam_token_to_s8(token);
+				char *tmp      = strndup((char *)string.data, string.len);
+				if (tmp) {
+					cmd->regex = vis_regex(vis, tmp);
+					free(tmp);
+				}
+			}
+
+			if (!cmd->regex && !(cmddef->flags & CMD_COUNT)) {
+				/* TODO(rnp): print error "count or regex at position ..." */
 				*err = SAM_ERR_REGEX;
 				goto fail;
 			}
 		}
-	}
-
-	if (cmddef->flags & CMD_SHELL && !(cmd->argv[1] = parse_shellcmd(vis, s))) {
-		*err = SAM_ERR_SHELL;
-		goto fail;
-	}
-
-	if (cmddef->flags & CMD_TEXT && !(cmd->argv[1] = parse_text(s, &cmd->count))) {
-		*err = SAM_ERR_TEXT;
-		goto fail;
 	}
 
 	if (cmddef->flags & CMD_ARGV) {
@@ -975,14 +1268,15 @@ static Command *command_parse(Vis *vis, const char **s, enum SamError *err) {
 		if (cmddef->defcmd && (**s == '\n' || **s == '}' || **s == '\0')) {
 			if (**s == '\n')
 				(*s)++;
-			if (!(cmd->cmd = command_new(cmddef->defcmd)))
+			if (!(cmd->cmd = calloc(1, sizeof(Command))))
 				goto fail;
-			cmd->cmd->cmddef = command_lookup(vis, cmddef->defcmd);
+			/* TODO(rnp): this doesn't go here */
+			//cmd->cmd->cmddef = command_lookup(vis, cmddef->defcmd);
 		} else {
 			if (!(cmd->cmd = command_parse(vis, s, err)))
 				goto fail;
 			if (strcmp(cmd->argv[0], "X") == 0 || strcmp(cmd->argv[0], "Y") == 0) {
-				Command *sel = command_new("select");
+				Command *sel = calloc(1, sizeof(*sel));
 				if (!sel)
 					goto fail;
 				sel->cmd = cmd->cmd;
@@ -997,137 +1291,107 @@ fail:
 	command_free(cmd);
 	return NULL;
 }
+#endif
 
-static Command *sam_parse(Vis *vis, const char *cmd, enum SamError *err) {
-	vis->nesting_level = 0;
-	const char **s = &cmd;
-	Command *c = command_parse(vis, s, err);
-	if (!c)
-		return NULL;
-	while (**s == ' ' || **s == '\t' || **s == '\n')
-		(*s)++;
-	if (**s) {
-		*err = SAM_ERR_NEWLINE;
-		command_free(c);
-		return NULL;
-	}
+static Filerange
+evaluate_address_side(AddressSide as, File *file, Selection *sel, Filerange range)
+{
+	Filerange result = text_range_empty();
 
-	Command *sel = command_new("select");
-	if (!sel) {
-		command_free(c);
-		return NULL;
-	}
-	sel->cmd = c;
-	sel->cmddef = &cmddef_select;
-	return sel;
-}
-
-static Filerange address_line_evaluate(Address *addr, File *file, Filerange *range, int sign) {
-	Text *txt = file->text;
-	size_t offset = addr->number != EPOS ? addr->number : 1;
-	size_t start = range->start, end = range->end, line;
-	if (sign > 0) {
-		char c;
-		if (start < end && text_byte_get(txt, end-1, &c) && c == '\n')
-			end--;
-		line = text_lineno_by_pos(txt, end);
-		line = text_pos_by_lineno(txt, line + offset);
-	} else if (sign < 0) {
-		line = text_lineno_by_pos(txt, start);
-		line = offset < line ? text_pos_by_lineno(txt, line - offset) : 0;
-	} else {
-		if (addr->number == 0)
-			return text_range_new(0, 0);
-		line = text_pos_by_lineno(txt, addr->number);
-	}
-
-	if (addr->type == 'g')
-		return text_range_new(line, line);
-	else
-		return text_range_new(line, text_line_next(txt, line));
-}
-
-static Filerange address_evaluate(Address *addr, File *file, Selection *sel, Filerange *range, int sign) {
-	Filerange ret = text_range_empty();
-
-	do {
-		switch (addr->type) {
-		case '#':
-			if (sign > 0)
-				ret.start = ret.end = range->end + addr->number;
-			else if (sign < 0)
-				ret.start = ret.end = range->start - addr->number;
-			else
-				ret = text_range_new(addr->number, addr->number);
-			break;
-		case 'l':
-		case 'g':
-			ret = address_line_evaluate(addr, file, range, sign);
-			break;
-		case '\'':
-		{
-			size_t pos = EPOS;
-			Array *marks = &file->marks[addr->number];
-			size_t idx = sel ? view_selections_number(sel) : 0;
-			SelectionRegion *sr = array_get(marks, idx);
-			if (sr)
-				pos = text_mark_get(file->text, sr->cursor);
-			ret = text_range_new(pos, pos);
-			break;
-		}
-		case '?':
-			sign = sign == 0 ? -1 : -sign;
-			/* fall through */
-		case '/':
-			if (sign >= 0)
-				ret = text_object_search_forward(file->text, range->end, addr->regex);
-			else
-				ret = text_object_search_backward(file->text, range->start, addr->regex);
-			break;
-		case '$':
-		{
+	switch (as.type) {
+	case AT_INVALID: ASSERT(0); break;
+	case AT_BYTE: {
+		result = (Filerange){.start = as.u.number, .end = as.u.number};
+	} break;
+	case AT_CHARACTER: {
+		switch (as.u.character) {
+		case '$': {
 			size_t size = text_size(file->text);
-			ret = text_range_new(size, size);
-			break;
+			result = (Filerange){.start = size, .end = size};
+		} break;
+		case '.': result = range; break;
+		case '%': result = text_range_new(0, text_size(file->text)); break;
 		}
-		case '.':
-			ret = *range;
-			break;
-		case '+':
-		case '-':
-			sign = addr->type == '+' ? +1 : -1;
-			if (!addr->right || addr->right->type == '+' || addr->right->type == '-')
-				ret = address_line_evaluate(addr, file, range, sign);
-			break;
-		case ',':
-		case ';':
-		{
-			Filerange left, right;
-			if (addr->left)
-				left = address_evaluate(addr->left, file, sel, range, 0);
-			else
-				left = text_range_new(0, 0);
-
-			if (addr->type == ';')
-				range = &left;
-
-			if (addr->right) {
-				right = address_evaluate(addr->right, file, sel, range, 0);
-			} else {
-				size_t size = text_size(file->text);
-				right = text_range_new(size, size);
-			}
-			/* TODO: enforce strict ordering? */
-			return text_range_union(&left, &right);
+	} break;
+	case AT_LINE: {
+		result = (Filerange){0};
+		if (as.u.number) {
+			size_t line = text_pos_by_lineno(file->text, as.u.number);
+			result = text_range_new(line, text_line_next(file->text, line));
 		}
-		case '%':
-			return text_range_new(0, text_size(file->text));
-		}
-		if (text_range_valid(&ret))
-			range = &ret;
-	} while ((addr = addr->right));
+	} break;
+	case AT_MARK: {
+		size_t pos   = EPOS;
+		Array *marks = &file->marks[as.u.mark];
+		SelectionRegion *sr = array_get(marks, sel ? view_selections_number(sel) : 0);
+		if (sr) pos = text_mark_get(file->text, sr->cursor);
+		result = (Filerange){.start = pos, .end = pos};
+	} break;
+	case AT_REGEX_BACKWARD: {
+		result = text_object_search_backward(file->text, range.start, as.u.regex);
+	} break;
+	case AT_REGEX_FORWARD: {
+		result = text_object_search_forward(file->text, range.end, as.u.regex);
+	} break;
+	}
 
-	return ret;
+	return result;
+}
+
+static Filerange
+evaluate_address(Address addr, File *file, Selection *sel, Filerange range)
+{
+	Filerange result = text_range_empty();
+
+	switch (addr.delimeter) {
+	case '+':
+	case '-': {
+		/* TODO(rnp): I'm not sure this does what sam (as Pike described) does.
+		 * Re-evaluate after making sure each side evaluates to a single position
+		 * (this is supposed to happen but the original vis code did something else) */
+
+		Filerange right = {0};
+		if (addr.right.type != AT_INVALID)
+			right = evaluate_address_side(addr.right, file, sel, range);
+
+		size_t line;
+		if (addr.delimeter == '+') {
+			size_t offset = right.end != EPOS? right.end : 1;
+			size_t start  = range.start, end = range.end;
+			char c;
+			if (start < end && text_byte_get(file->text, end-1, &c) && c == '\n')
+				end--;
+			line = text_lineno_by_pos(file->text, end);
+			line = text_pos_by_lineno(file->text, line + offset);
+		} else {
+			size_t offset = right.start != EPOS? right.start : 1;
+			line = text_lineno_by_pos(file->text, range.start);
+			line = offset < line ? text_pos_by_lineno(file->text, line - offset) : 0;
+		}
+
+		result = text_range_new(line, text_line_next(file->text, line));
+	} break;
+	case ',':
+	case ';': {
+		Filerange left = {0}, right;
+		if (addr.left.type != AT_INVALID)
+			left = evaluate_address_side(addr.left, file, sel, range);
+
+		if (addr.delimeter == ';')
+			range = left;
+
+		if (addr.right.type != AT_INVALID) {
+			right = evaluate_address_side(addr.right, file, sel, range);
+		} else {
+			size_t size = text_size(file->text);
+			right = (Filerange){.start = size, .end = size};
+		}
+		/* TODO: enforce strict ordering? */
+		result = text_range_union(&left, &right);
+	} break;
+	}
+
+	return result;
 }
 
 static bool count_evaluate(Command *cmd) {
@@ -1137,175 +1401,398 @@ static bool count_evaluate(Command *cmd) {
 	return count->start <= cmd->iteration && cmd->iteration <= count->end;
 }
 
-static bool sam_execute(Vis *vis, Win *win, Command *cmd, Selection *sel, Filerange *range) {
-	bool ret = true;
-	if (cmd->address && win)
-		*range = address_evaluate(cmd->address, win->file, sel, range, 0);
-
-	cmd->iteration++;
-	switch (cmd->argv[0][0]) {
-	case '{':
-	{
-		for (Command *c = cmd->cmd; c && ret; c = c->next)
-			ret &= sam_execute(vis, win, c, NULL, range);
-		view_selections_dispose_force(sel);
-		break;
-	}
-	default:
-		ret = cmd->cmddef->func(vis, win, cmd, cmd->argv, sel, range);
-		break;
-	}
-	return ret;
-}
-
-static enum SamError validate(Command *cmd, bool loop, bool group) {
-	if (cmd->cmddef->flags & CMD_DESTRUCTIVE) {
-		if (loop)
-			return SAM_ERR_LOOP_INVALID_CMD;
-		if (group)
-			return SAM_ERR_GROUP_INVALID_CMD;
-	}
-
-	group |= (cmd->cmddef->flags & CMD_GROUP);
-	loop  |= (cmd->cmddef->flags & CMD_LOOP);
-	for (Command *c = cmd->cmd; c; c = c->next) {
-		enum SamError err = validate(c, loop, group);
-		if (err != SAM_ERR_OK)
-			return err;
-	}
-	return SAM_ERR_OK;
-}
-
-static enum SamError command_validate(Command *cmd) {
-	return validate(cmd, false, false);
-}
-
 static bool count_negative(Command *cmd) {
 	if (cmd->count.start < 0 || cmd->count.end < 0)
 		return true;
+#if 0
 	for (Command *c = cmd->cmd; c; c = c->next) {
-		if (c->cmddef->func != cmd_extract && c->cmddef->func != cmd_select) {
+		if (c->cmddef->fn != command_extract && c->cmddef->fn != command_select) {
 			if (count_negative(c))
 				return true;
 		}
 	}
+#endif
 	return false;
 }
 
 static void count_init(Command *cmd, int max) {
 	Count *count = &cmd->count;
 	cmd->iteration = 0;
-	if (count->start < 0)
-		count->start += max;
-	if (count->end < 0)
-		count->end += max;
-	for (Command *c = cmd->cmd; c; c = c->next) {
-		if (c->cmddef->func != cmd_extract && c->cmddef->func != cmd_select)
-			count_init(c, max);
-	}
+	if (count->start < 0) count->start += max;
+	if (count->end   < 0) count->end   += max;
 }
 
-enum SamError sam_cmd(Vis *vis, const char *s) {
-	enum SamError err = SAM_ERR_OK;
-	if (!s)
-		return err;
-
-	Command *cmd = sam_parse(vis, s, &err);
-	if (!cmd) {
-		if (err == SAM_ERR_OK)
-			err = SAM_ERR_MEMORY;
-		return err;
-	}
-
-	err = command_validate(cmd);
-	if (err != SAM_ERR_OK) {
-		command_free(cmd);
-		return err;
-	}
-
-	for (File *file = vis->files; file; file = file->next) {
-		if (file->internal)
-			continue;
-		sam_transcript_init(&file->transcript);
-	}
-
-	bool visual = vis->mode->visual;
-	size_t primary_pos = vis->win ? view_cursor_get(&vis->win->view) : EPOS;
-	Filerange range = text_range_empty();
-	sam_execute(vis, vis->win, cmd, NULL, &range);
-
-	for (File *file = vis->files; file; file = file->next) {
-		if (file->internal)
-			continue;
-		Transcript *t = &file->transcript;
-		if (t->error != SAM_ERR_OK) {
-			err = t->error;
-			sam_transcript_free(t);
-			continue;
-		}
-		vis_file_snapshot(vis, file);
-		ptrdiff_t delta = 0;
-		for (Change *c = t->changes; c; c = c->next) {
-			c->range.start += delta;
-			c->range.end += delta;
-			if (c->type & TRANSCRIPT_DELETE) {
-				text_delete_range(file->text, &c->range);
-				delta -= text_range_size(&c->range);
-				if (c->sel && c->type == TRANSCRIPT_DELETE) {
-					if (visual)
-						view_selections_dispose_force(c->sel);
-					else
-						view_cursors_to(c->sel, c->range.start);
-				}
-			}
-			if (c->type & TRANSCRIPT_INSERT) {
-				for (int i = 0; i < c->count; i++) {
-					text_insert(file->text, c->range.start, c->data, c->len);
-					delta += c->len;
-				}
-				Filerange r = text_range_new(c->range.start,
-				                             c->range.start + c->len * c->count);
-				if (c->sel) {
-					if (visual) {
-						view_selections_set(c->sel, &r);
-						c->sel->anchored = true;
-					} else {
-						if (memchr(c->data, '\n', c->len))
-							view_cursors_to(c->sel, r.start);
-						else
-							view_cursors_to(c->sel, r.end);
-					}
-				} else if (visual) {
-					Selection *sel = view_selections_new(&c->win->view, r.start);
-					if (sel) {
-						view_selections_set(sel, &r);
-						sel->anchored = true;
-					}
-				}
-			}
-		}
-		sam_transcript_free(&file->transcript);
-		vis_file_snapshot(vis, file);
-	}
-
-	for (Win *win = vis->windows; win; win = win->next)
-		view_selections_normalize(&win->view);
-
-	if (vis->win) {
-		if (primary_pos != EPOS && view_selection_disposed(&vis->win->view))
-			view_cursors_to(vis->win->view.selection, primary_pos);
-		view_selections_primary_set(view_selections(&vis->win->view));
-		vis_jumplist_save(vis);
-		bool completed = true;
-		for (Selection *s = view_selections(&vis->win->view); s; s = view_selections_next(s)) {
-			if (s->anchored) {
-				completed = false;
+static Filerange
+get_range_for_command(Command *c, Text *txt, size_t current_position, b32 multiple_cursors)
+{
+	Filerange result;
+	if (c->address.left.type != AT_INVALID) {
+		/* convert a single line range to a goto line motion */
+		#if 0
+		if (!multiple_cursors && cmd->cmddef->fn == command_print) {
+			Address *addr = cmd->address;
+			switch (addr->type) {
+			case '+':
+			case '-':
+				addr = addr->right;
+				/* fall through */
+			case 'l':
+				if (addr && addr->type == 'l' && !addr->right)
+					addr->type = 'g';
 				break;
 			}
 		}
-		vis_mode_switch(vis, completed ? VIS_MODE_NORMAL : VIS_MODE_VISUAL);
+		#endif
+		result = text_range_new(current_position, current_position);
+	} else if (c->definition->flags & CMD_ADDRESS_POS) {
+		result = text_range_new(current_position, current_position);
+	} else if (c->definition->flags & CMD_ADDRESS_LINE) {
+		result = text_object_line(txt, current_position);
+	} else if (c->definition->flags & CMD_ADDRESS_AFTER) {
+		size_t next_line = text_line_next(txt, current_position);
+		result = text_range_new(next_line, next_line);
+	} else if (c->definition->flags & CMD_ADDRESS_ALL) {
+		result = text_range_new(0, text_size(txt));
+	} else if (!multiple_cursors && (c->definition->flags & CMD_ADDRESS_ALL_1CURSOR)) {
+		result = text_range_new(0, text_size(txt));
+	} else {
+		result = text_range_new(current_position, text_char_next(txt, current_position));
 	}
-	command_free(cmd);
+	return result;
+}
+
+static CommandDef *
+lookup_command_definition(Vis *vis, SamToken command)
+{
+	ASSERT(command.type == ST_STRING);
+	s8 name = sam_token_to_s8(command);
+	CommandDef *result = map_closest(vis->cmds, (char *)push_s8_zero(&vis->sam.arena, name).data);
+	return result;
+}
+
+static b32
+validate_token_stream(SamExecutionState *sam, SamTokenStream *sts)
+{
+	b32 result  = sts->count > 0;
+	i32 nesting = 0;
+	for (i32 i = 0; result && i < sts->count; i++) {
+		switch (sts->tokens[i].type) {
+		case ST_INVALID:     result = 0; break;
+		case ST_GROUP_START: nesting++;  break;
+		case ST_GROUP_END:   nesting--;  break;
+		default: break;
+		}
+	}
+	result = nesting == 0;
+	if (nesting != 0) {
+		/* TODO(rnp): print unmatched grouping */
+	}
+	return result;
+}
+
+static SAM_CMD_FN(sam_execute)
+{
+	bool ret = true;
+	if (command->address.left.type != AT_INVALID && win)
+		*range = evaluate_address(command->address, win->file, selection, *range);
+
+	command->iteration++;
+	switch (command->definition->name.data[0]) {
+	case '{':
+		for (Command *c = command->cmd; c && ret; c = c->next)
+			ret &= sam_execute(vis, win, c, sts, 0, range);
+		view_selections_dispose_force(selection);
+		break;
+	default:
+		ret = command->definition->fn(vis, win, command, sts, selection, range);
+		break;
+	}
+	return ret;
+}
+
+static b32
+command_parse(Vis *vis, Command *command, SamTokenStream *sts)
+{
+	if (command->definition->flags & CMD_FORCE)
+		command->force = sam_token_check_pop_force_flag(sts);
+
+	if (command->definition->flags & CMD_TEXT) {
+		command->count.start = check_count(sts, &vis->sam.log);
+		SamToken string = sam_delimited_string(sts);
+		if (string.type != ST_INVALID) {
+			command->args    = alloc(&vis->sam.arena, char *, 1);
+			/* TODO(rnp): unescape string */
+			command->args[0] = (char *)push_s8_zero(&vis->sam.arena,
+			                                        sam_token_to_s8(string)).data;
+		} else {
+			sam_error_at(&vis->sam.log, sts, sam_token_peek(sts),
+			             "expected delimited string");
+			return 0;
+		}
+	}
+
+	if (command->definition->flags & CMD_SHELL) {
+		SamToken token = {0};
+		if (sam_token_peek(sts).type == ST_STRING) {
+			/* TODO(rnp): this should join to end of the line */
+			token     = sam_token_pop(sts);
+			s8 string = {.len  = sts->raw.len - (token.start - sts->raw.data),
+			             .data = token.start};
+			command->u.s8 = string;
+			register_put(vis, vis->registers + VIS_REG_SHELL, (char *)string.data, string.len);
+		} else {
+			size_t last_command_len;
+			const char *last_command = register_get(vis, &vis->registers[VIS_REG_SHELL],
+			                                        &last_command_len);
+			command->u.s8 = (s8){.len = last_command_len, .data = (u8 *)last_command};
+		}
+		if (command->u.s8.len <= 0) {
+			sam_error_at(&vis->sam.log, sts, token, "expected shell command");
+			return 0;
+		}
+	}
+
+	return 1;
+}
+
+static b32
+execute_command(Vis *vis, Command *command, SamTokenStream *sts, Address address)
+{
+	b32 result = 1;
+
+	if (!command_parse(vis, command, sts))
+		return 0;
+
+	Win *win = vis->win;
+	if (!win && command->definition->flags & CMD_WIN) {
+		/* TODO(rnp): can we even print an error in this case ? */
+		return 0;
+	}
+
+	if (win) {
+		View *view = &win->view;
+		Text *txt  = win->file->text;
+		b32 multiple_cursors = view->selection_count > 1;
+		Selection *primary = view_selections_primary_get(view);
+
+		if (vis->mode->visual)
+			count_init(command, view->selection_count + 1);
+
+		for (Selection *s = view_selections(view), *next; s && result; s = next) {
+			Filerange range;
+			next = view_selections_next(s);
+			if (vis->mode->visual) {
+				range = view_selections_get(s);
+			} else {
+				range = get_range_for_command(command, txt, view_cursors_pos(s),
+				                              multiple_cursors);
+			}
+
+			if (!text_range_valid(&range))
+				range = (Filerange){0};
+
+			/* TODO(rnp): this was how old vis worked but maybe we don't need
+			 * to do the above if the address is valid */
+			if (address.left.type != AT_INVALID)
+				range = evaluate_address(address, win->file, s, range);
+
+			result = command->definition->fn(vis, win, command, sts, s, &range);
+			if (command->definition->flags & CMD_ONCE)
+				break;
+		}
+
+		if (vis->win && &vis->win->view == view && primary != view_selections_primary_get(view))
+			view_selections_primary_set(view_selections(view));
+	} else {
+		Filerange range = text_range_empty();
+		result = command->definition->fn(vis, 0, command, sts, 0, &range);
+	}
+	return result;
+}
+
+static void
+execute_token_stream(Vis *vis, SamTokenStream *sts)
+{
+	ASSERT(sts->count);
+
+	b32 did_looping_command = 0;
+	i32 nesting_level       = 0;
+
+	Command *command = push_struct(&vis->sam.arena, Command);
+	command->address = parse_address(vis, sts);
+
+	while (sts->count != sts->read_index && !vis->sam.should_exit) {
+		SamToken token = sam_token_pop(sts);
+		switch (token.type) {
+		case ST_GROUP_START: {
+			Command *new = push_struct(&vis->sam.arena, Command);
+			new->prev    = command;
+			command = command->next = new;
+		} break;
+		case ST_GROUP_END: {
+			//view_selections_dispose_force(sel);
+			nesting_level--;
+			command = command->prev;
+			ASSERT(command);
+		} break;
+		case ST_STRING: {
+			token = sam_token_join_command_name(sts, token);
+			command->definition = lookup_command_definition(vis, token);
+			if (command->definition) {
+				if (did_looping_command && command->definition->flags & CMD_DESTRUCTIVE) {
+					/* TODO(rnp): print error: cannot execute destructive command
+					 * after a looping command */
+					vis->sam.should_exit = 1;
+				} else {
+					b32 result = execute_command(vis, command, sts,
+					                             command->address);
+					vis->sam.should_exit = !result;
+				}
+				did_looping_command |= (command->definition->flags & CMD_LOOP) != 0;
+			} else {
+				sam_error_at(&vis->sam.log, sts, token, "invalid command");
+				vis->sam.should_exit = 1;
+			}
+		} break;
+		default: {
+			/* TODO(rnp): error: unexpected token at ... */
+			vis->sam.should_exit = 1;
+		} break;
+		}
+	}
+
+	if (sts->count != sts->read_index) {
+		sam_error_at(&vis->sam.log, sts, sam_token_peek(sts), "extra tokens at end of command");
+		for (i32 i = sts->read_index; i < sts->count; i++) {
+			buffer_appendf(&vis->sam.log, "token[%d]: ", i);
+			/* TODO(rnp): fix buffer_appendf */
+			vis->sam.log.len--;
+			sam_token_print(&vis->sam.log, sts->tokens[i]);
+		}
+	}
+
+	if (command->address.right.type == AT_REGEX_BACKWARD ||
+	    command->address.right.type == AT_REGEX_FORWARD)
+		text_regex_free(command->address.right.u.regex);
+
+	ASSERT(nesting_level == 0);
+}
+
+enum SamError sam_cmd(Vis *vis, s8 command_line) {
+	ASSERT(command_line.len > 0);
+	enum SamError err = SAM_ERR_OK;
+
+	vis->sam.arena.start = vis->sam.arena.base;
+	vis->sam.should_exit = 0;
+
+	vis->sam.token_stream.start  = vis->sam.token_stream.base;
+	SamTokenStream *token_stream = push_struct(&vis->sam.token_stream, SamTokenStream);
+	token_stream->backing        = &vis->sam.token_stream;
+
+	ix padding = -(uintptr_t)token_stream->backing->start & (__alignof__(SamToken) - 1);
+	token_stream->tokens = (SamToken *)(token_stream->backing->start + padding);
+	token_stream->raw    = command_line;
+
+	sam_lex(token_stream, command_line);
+
+	#if 0
+	{
+		buffer_appendf(&vis->sam.log, "sam_cmd(\":%.*s\"):\n", (i32)command_line.len, command_line.data);
+		for (u32 i = 0; i < token_stream->count; i++) {
+			buffer_appendf(&vis->sam.log, "token[%d]: ", i);
+			/* TODO(rnp): fix buffer_appendf */
+			vis->sam.log.len--;
+			sam_token_print(&vis->sam.log, token_stream->tokens[i]);
+		}
+		buffer_append(&vis->sam.log, "\n", 1);
+	}
+	#endif
+
+	if (validate_token_stream(&vis->sam, token_stream)) {
+		for (File *file = vis->files; file; file = file->next) {
+			if (file->internal)
+				continue;
+			file->transcript = (Transcript){0};
+		}
+
+		b32    visual      = vis->mode->visual;
+		size_t primary_pos = vis->win ? view_cursor_get(&vis->win->view) : EPOS;
+
+		execute_token_stream(vis, token_stream);
+
+		for (File *file = vis->files; file; file = file->next) {
+			if (file->internal)
+				continue;
+			Transcript *t = &file->transcript;
+			if (t->error != SAM_ERR_OK) {
+				err = t->error;
+				sam_transcript_free(t);
+				continue;
+			}
+			vis_file_snapshot(vis, file);
+			ptrdiff_t delta = 0;
+			for (Change *c = t->changes; c; c = c->next) {
+				c->range.start += delta;
+				c->range.end += delta;
+				if (c->type & TRANSCRIPT_DELETE) {
+					text_delete_range(file->text, &c->range);
+					delta -= text_range_size(&c->range);
+					if (c->sel && c->type == TRANSCRIPT_DELETE) {
+						if (visual)
+							view_selections_dispose_force(c->sel);
+						else
+							view_cursors_to(c->sel, c->range.start);
+					}
+				}
+				if (c->type & TRANSCRIPT_INSERT) {
+					for (int i = 0; i < c->count; i++) {
+						text_insert(file->text, c->range.start, c->data, c->len);
+						delta += c->len;
+					}
+					Filerange r = text_range_new(c->range.start,
+					                             c->range.start + c->len * c->count);
+					if (c->sel) {
+						if (visual) {
+							view_selections_set(c->sel, &r);
+							c->sel->anchored = true;
+						} else {
+							if (memchr(c->data, '\n', c->len))
+								view_cursors_to(c->sel, r.start);
+							else
+								view_cursors_to(c->sel, r.end);
+						}
+					} else if (visual) {
+						Selection *sel = view_selections_new(&c->win->view, r.start);
+						if (sel) {
+							view_selections_set(sel, &r);
+							sel->anchored = true;
+						}
+					}
+				}
+			}
+			sam_transcript_free(&file->transcript);
+			vis_file_snapshot(vis, file);
+		}
+
+		for (Win *win = vis->windows; win; win = win->next)
+			view_selections_normalize(&win->view);
+
+		if (vis->win) {
+			if (primary_pos != EPOS && view_selection_disposed(&vis->win->view))
+				view_cursors_to(vis->win->view.selection, primary_pos);
+			view_selections_primary_set(view_selections(&vis->win->view));
+			vis_jumplist_save(vis);
+			bool completed = true;
+			for (Selection *s = view_selections(&vis->win->view); s; s = view_selections_next(s)) {
+				if (s->anchored) {
+					completed = false;
+					break;
+				}
+			}
+			vis_mode_switch(vis, completed ? VIS_MODE_NORMAL : VIS_MODE_VISUAL);
+		}
+	}
+
 	return err;
 }
 
@@ -1316,94 +1803,102 @@ Buffer text(Vis *vis, const char *text) {
 		buffer_append(&buf, text, len);
 		text += len;
 		enum VisRegister regid = VIS_REG_INVALID;
-		switch (text[0]) {
-		case '&':
-			regid = VIS_REG_AMPERSAND;
+		if (!text[0])
 			break;
-		case '\\':
+		if (!text[0]) {
+			break;
+		} else if (text[0] == '&') {
+			regid = VIS_REG_AMPERSAND;
+		} else if (text[0] == '\\') {
 			if ('1' <= text[1] && text[1] <= '9') {
 				regid = VIS_REG_1 + text[1] - '1';
 				text++;
 			} else if (text[1] == '\\' || text[1] == '&') {
 				text++;
 			}
-			break;
-		case '\0':
-			goto out;
 		}
 
-		const char *data;
+		const char *data = text;
 		size_t reglen = 0;
 		if (regid != VIS_REG_INVALID) {
 			data = register_get(vis, &vis->registers[regid], &reglen);
 		} else {
-			data = text;
 			reglen = 1;
 		}
 		buffer_append(&buf, data, reglen);
 	}
-out:
 	return buf;
 }
 
-static bool cmd_insert(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	if (!win)
-		return false;
-	Buffer buf = text(vis, argv[1]);
-	bool ret = sam_insert(win, sel, range->start, buf.data, buf.len, cmd->count.start);
-	if (!ret)
+static SAM_CMD_FN(command_insert)
+{
+	ASSERT(command->args && win);
+	Buffer buf = text(vis, command->args[0]);
+	/* TODO(rnp): sam_insert should just take a s8 directly, and copy it to the change */
+	b32 result = sam_insert(win, selection, range->start, buf.data, buf.len, command->count.start);
+	if (!result)
 		free(buf.data);
-	return ret;
+	return result;
 }
 
-static bool cmd_append(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	if (!win)
-		return false;
-	Buffer buf = text(vis, argv[1]);
-	bool ret = sam_insert(win, sel, range->end, buf.data, buf.len, cmd->count.start);
-	if (!ret)
+static SAM_CMD_FN(command_append)
+{
+	ASSERT(command->args && win);
+	Buffer buf = text(vis, command->args[0]);
+	b32 result = sam_insert(win, selection, range->end, buf.data, buf.len, command->count.start);
+	/* TODO(rnp): sam_insert should just take a s8 directly, and copy it to the change */
+	if (!result)
 		free(buf.data);
-	return ret;
+	return result;
 }
 
-static bool cmd_change(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	if (!win)
-		return false;
-	Buffer buf = text(vis, argv[1]);
-	bool ret = sam_change(win, sel, range, buf.data, buf.len, cmd->count.start);
-	if (!ret)
+static SAM_CMD_FN(command_change)
+{
+	ASSERT(command->args && win);
+	Buffer buf = text(vis, command->args[0]);
+	b32 result = sam_change(win, selection, range, buf.data, buf.len, command->count.start);
+	/* TODO(rnp): sam_change should just take a s8 directly, and copy it to the change */
+	if (!result)
 		free(buf.data);
-	return ret;
+	return result;
 }
 
-static bool cmd_delete(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	return win && sam_delete(win, sel, range);
+static SAM_CMD_FN(command_delete)
+{
+	ASSERT(win);
+	return sam_delete(win, selection, range);
 }
 
-static bool cmd_guard(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	if (!win)
-		return false;
+static SAM_CMD_FN(command_guard)
+{
+	ASSERT(win);
 	bool match = false;
 	RegexMatch captures[1];
 	size_t len = text_range_size(range);
-	if (!cmd->regex)
+	if (!command->regex)
 		match = true;
-	else if (!text_search_range_forward(win->file->text, range->start, len, cmd->regex, 1, captures, 0))
+	else if (!text_search_range_forward(win->file->text, range->start, len, command->regex, 1, captures, 0))
 		match = captures[0].start < range->end;
-	if ((count_evaluate(cmd) && match) ^ (argv[0][0] == 'v'))
-		return sam_execute(vis, win, cmd->cmd, sel, range);
-	view_selections_dispose_force(sel);
+	if ((count_evaluate(command) && match) ^ (command->definition->name.data[0] == 'v'))
+		return sam_execute(vis, win, command->cmd, sts, selection, range);
+	view_selections_dispose_force(selection);
 	return true;
 }
 
-static int extract(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range, bool simulate) {
+static i32
+extract(Vis *vis, Win *win, Command *cmd, SamTokenStream *sts, Selection *sel,
+        Filerange *range, bool simulate)
+{
 	bool ret = true;
 	int count = 0;
 	Text *txt = win->file->text;
 
+	/* TODO(rnp): cleanup */
+	b32 is_x = cmd->definition->name.data[0] == 'x';
+
 	if (cmd->regex) {
 		size_t start = range->start, end = range->end;
-		size_t last_start = argv[0][0] == 'x' ? EPOS : start;
+		size_t last_start = is_x ? EPOS : start;
 		size_t nsub = 1 + text_regex_nsub(cmd->regex);
 		if (nsub > MAX_REGEX_SUB)
 			nsub = MAX_REGEX_SUB;
@@ -1418,10 +1913,8 @@ static int extract(Vis *vis, Win *win, Command *cmd, const char *argv[], Selecti
 			                                        flags);
 			Filerange r = text_range_empty();
 			if (found) {
-				if (argv[0][0] == 'x')
-					r = text_range_new(match[0].start, match[0].end);
-				else
-					r = text_range_new(last_start, match[0].start);
+				if (is_x) r = text_range_new(match[0].start, match[0].end);
+				else      r = text_range_new(last_start, match[0].start);
 				if (match[0].start == match[0].end) {
 					if (last_start == match[0].start) {
 						start++;
@@ -1440,7 +1933,7 @@ static int extract(Vis *vis, Win *win, Command *cmd, const char *argv[], Selecti
 					start = match[0].end;
 				}
 			} else {
-				if (argv[0][0] == 'y')
+				if (!is_x)
 					r = text_range_new(start, end);
 				start = end + 1;
 			}
@@ -1458,7 +1951,7 @@ static int extract(Vis *vis, Win *win, Command *cmd, const char *argv[], Selecti
 				if (simulate)
 					count++;
 				else
-					ret &= sam_execute(vis, win, cmd->cmd, NULL, &r);
+					ret &= sam_execute(vis, win, cmd->cmd, sts, 0, &r);
 			}
 		}
 	} else {
@@ -1473,7 +1966,7 @@ static int extract(Vis *vis, Win *win, Command *cmd, const char *argv[], Selecti
 			if (simulate)
 				count++;
 			else
-				ret &= sam_execute(vis, win, cmd->cmd, NULL, &r);
+				ret = sam_execute(vis, win, cmd->cmd, sts, 0, &r);
 			start = next;
 		}
 	}
@@ -1483,122 +1976,73 @@ static int extract(Vis *vis, Win *win, Command *cmd, const char *argv[], Selecti
 	return simulate ? count : ret;
 }
 
-static bool cmd_extract(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	if (!win || !text_range_valid(range))
-		return false;
-	int matches = 0;
-	if (count_negative(cmd->cmd))
-		matches = extract(vis, win, cmd, argv, sel, range, true);
-	count_init(cmd->cmd, matches+1);
-	return extract(vis, win, cmd, argv, sel, range, false);
+static SAM_CMD_FN(command_extract)
+{
+	ASSERT(win);
+	b32 result = 0;
+	if (text_range_valid(range)) {
+		i32 matches = 0;
+		if (count_negative(command->cmd))
+			matches = extract(vis, win, command, sts, selection, range, true);
+		count_init(command->cmd, matches+1);
+		result = extract(vis, win, command, sts, selection, range, false);
+	}
+	return result;
 }
 
-static bool cmd_select(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	Filerange r = text_range_empty();
-	if (!win)
-		return sam_execute(vis, NULL, cmd->cmd, NULL, &r);
-	bool ret = true;
-	View *view = &win->view;
-	Text *txt = win->file->text;
-	bool multiple_cursors = view->selection_count > 1;
-	Selection *primary = view_selections_primary_get(view);
-
-	if (vis->mode->visual)
-		count_init(cmd->cmd, view->selection_count + 1);
-
-	for (Selection *s = view_selections(view), *next; s && ret; s = next) {
-		next = view_selections_next(s);
-		size_t pos = view_cursors_pos(s);
-		if (vis->mode->visual) {
-			r = view_selections_get(s);
-		} else if (cmd->cmd->address) {
-			/* convert a single line range to a goto line motion */
-			if (!multiple_cursors && cmd->cmd->cmddef->func == cmd_print) {
-				Address *addr = cmd->cmd->address;
-				switch (addr->type) {
-				case '+':
-				case '-':
-					addr = addr->right;
-					/* fall through */
-				case 'l':
-					if (addr && addr->type == 'l' && !addr->right)
-						addr->type = 'g';
-					break;
-				}
+static SAM_CMD_FN(command_print)
+{
+	ASSERT(win);
+	b32 result = 0;
+	if (text_range_valid(range)) {
+		if (!selection) selection = view_selections_new_force(&win->view, range->start);
+		if (selection) {
+			if (range->start != range->end) {
+				view_selections_set(selection, range);
+				selection->anchored = true;
+			} else {
+				view_cursors_to(selection, range->start);
+				view_selection_clear(selection);
 			}
-			r = text_range_new(pos, pos);
-		} else if (cmd->cmd->cmddef->flags & CMD_ADDRESS_POS) {
-			r = text_range_new(pos, pos);
-		} else if (cmd->cmd->cmddef->flags & CMD_ADDRESS_LINE) {
-			r = text_object_line(txt, pos);
-		} else if (cmd->cmd->cmddef->flags & CMD_ADDRESS_AFTER) {
-			size_t next_line = text_line_next(txt, pos);
-			r = text_range_new(next_line, next_line);
-		} else if (cmd->cmd->cmddef->flags & CMD_ADDRESS_ALL) {
-			r = text_range_new(0, text_size(txt));
-		} else if (!multiple_cursors && (cmd->cmd->cmddef->flags & CMD_ADDRESS_ALL_1CURSOR)) {
-			r = text_range_new(0, text_size(txt));
-		} else {
-			r = text_range_new(pos, text_char_next(txt, pos));
+			result = 1;
 		}
-		if (!text_range_valid(&r))
-			r = text_range_new(0, 0);
-		ret &= sam_execute(vis, win, cmd->cmd, s, &r);
-		if (cmd->cmd->cmddef->flags & CMD_ONCE)
-			break;
 	}
-
-	if (vis->win && &vis->win->view == view && primary != view_selections_primary_get(view))
-		view_selections_primary_set(view_selections(view));
-	return ret;
+	return result;
 }
 
-static bool cmd_print(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	if (!win || !text_range_valid(range))
-		return false;
-	if (!sel)
-		sel = view_selections_new_force(&win->view, range->start);
-	if (!sel)
-		return false;
-	if (range->start != range->end) {
-		view_selections_set(sel, range);
-		sel->anchored = true;
-	} else {
-		view_cursors_to(sel, range->start);
-		view_selection_clear(sel);
-	}
-	return true;
-}
-
-static bool cmd_files(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	bool ret = true;
+static SAM_CMD_FN(command_files)
+{
+	b32 result = 1;
+	/* TODO(rnp): hack, cleanup */
+	b32 is_Y   = command->definition->name.data[0] == 'Y';
 	for (Win *wn, *w = vis->windows; w; w = wn) {
 		/* w can get freed by sam_execute() so store w->next early */
 		wn = w->next;
 		if (w->file->internal)
 			continue;
-		bool match = !cmd->regex ||
-		             (w->file->name && text_regex_match(cmd->regex, w->file->name, 0) == 0);
-		if (match ^ (argv[0][0] == 'Y')) {
-			Filerange def = text_range_new(0, 0);
-			ret &= sam_execute(vis, w, cmd->cmd, NULL, &def);
+		bool match = !command->regex ||
+		             (w->file->name && text_regex_match(command->regex, w->file->name, 0) == 0);
+		if (match ^ is_Y) {
+			Filerange def = (Filerange){0};
+			result = sam_execute(vis, w, command->cmd, sts, 0, &def);
 		}
 	}
-	return ret;
+	return result;
 }
 
-static bool cmd_substitute(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
+static SAM_CMD_FN(command_substitute)
+{
 	vis_info_show(vis, "Use :x/pattern/ c/replacement/ instead");
 	return false;
 }
 
-/* cmd_write stores win->file's contents end emits pre/post events.
+/* command_write stores win->file's contents end emits pre/post events.
  * If the range r covers the whole file, it is updated to account for
  * potential file's text mutation by a FILE_SAVE_PRE callback.
  */
-static bool cmd_write(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *r) {
-	if (!win)
-		return false;
+static SAM_CMD_FN(command_write)
+{
+	ASSERT(win);
 
 	File *file = win->file;
 	if (sam_transcript_error(&file->transcript, SAM_ERR_WRITE_CONFLICT))
@@ -1606,35 +2050,41 @@ static bool cmd_write(Vis *vis, Win *win, Command *cmd, const char *argv[], Sele
 
 	Text *text = file->text;
 	Filerange range_all = text_range_new(0, text_size(text));
-	bool write_entire_file = text_range_equal(r, &range_all);
+	bool write_entire_file = text_range_equal(range, &range_all);
 
-	const char *filename = argv[1];
-	if (!filename)
-		filename = file->name;
+	b32 filename_is_arg_1 = 0;
+	const char *filename  = file->name;
+	if (sam_token_peek(sts).type != ST_INVALID) {
+		/* TODO(rnp): unescape string */
+		s8 string = sam_token_to_s8(sam_tokens_join_until_space(sts));
+		filename  = (char *)push_s8_zero(&vis->sam.arena, string).data;
+		filename_is_arg_1 = 1;
+	}
+
 	if (!filename) {
 		if (file->fd == -1) {
 			vis_info_show(vis, "Filename expected");
 			return false;
 		}
-		if (!strchr(argv[0], 'q')) {
+		if (command->definition->fn != command_wq) {
 			vis_info_show(vis, "No filename given, use 'wq' to write to stdout");
 			return false;
 		}
 
-		if (!vis_event_emit(vis, VIS_EVENT_FILE_SAVE_PRE, file, (char*)NULL) && cmd->flags != '!') {
+		if (!vis_event_emit(vis, VIS_EVENT_FILE_SAVE_PRE, file, 0) && !command->force) {
 			vis_info_show(vis, "Rejected write to stdout by pre-save hook");
 			return false;
 		}
 		/* a pre-save hook may have changed the text; need to re-take the range */
 		if (write_entire_file)
-			*r = text_range_new(0, text_size(text));
+			*range = text_range_new(0, text_size(text));
 
 		bool visual = vis->mode->visual;
 
 		for (Selection *s = view_selections(&win->view); s; s = view_selections_next(s)) {
-			Filerange range = visual ? view_selections_get(s) : *r;
-			ssize_t written = text_write_range(text, &range, file->fd);
-			if (written == -1 || (size_t)written != text_range_size(&range)) {
+			Filerange new_range = visual ? view_selections_get(s) : *range;
+			ssize_t written = text_write_range(text, &new_range, file->fd);
+			if (written == -1 || (size_t)written != text_range_size(&new_range)) {
 				vis_info_show(vis, "Can not write to stdout");
 				return false;
 			}
@@ -1648,7 +2098,7 @@ static bool cmd_write(Vis *vis, Win *win, Command *cmd, const char *argv[], Sele
 		return true;
 	}
 
-	if (!argv[1] && cmd->flags != '!') {
+	if (!filename_is_arg_1 && !command->force) {
 		if (vis->mode->visual) {
 			vis_info_show(vis, "WARNING: file will be reduced to active selection");
 			return false;
@@ -1659,50 +2109,48 @@ static bool cmd_write(Vis *vis, Win *win, Command *cmd, const char *argv[], Sele
 		}
 	}
 
-	for (const char **name = argv[1] ? &argv[1] : (const char*[]){ filename, NULL }; *name; name++) {
-
-		char *path = absolute_path(*name);
-		if (!path)
-			return false;
-
+	b32 result = 0;
+	char *path = absolute_path(filename);
+	if (path) {
 		struct stat meta;
 		bool existing_file = !stat(path, &meta);
 		bool same_file = existing_file && file->name &&
-		                 file->stat.st_dev == meta.st_dev && file->stat.st_ino == meta.st_ino;
+		                 file->stat.st_dev == meta.st_dev &&
+		                 file->stat.st_ino == meta.st_ino;
 
-		if (cmd->flags != '!') {
+		if (!command->force) {
 			if (same_file && file->stat.st_mtime && file->stat.st_mtime < meta.st_mtime) {
 				vis_info_show(vis, "WARNING: file has been changed since reading it");
-				goto err;
+				goto finish;
 			}
 			if (existing_file && !same_file) {
 				vis_info_show(vis, "WARNING: file exists");
-				goto err;
+				goto finish;
 			}
 		}
 
-		if (!vis_event_emit(vis, VIS_EVENT_FILE_SAVE_PRE, file, path) && cmd->flags != '!') {
+		if (!vis_event_emit(vis, VIS_EVENT_FILE_SAVE_PRE, file, path) && !command->force) {
 			vis_info_show(vis, "Rejected write to `%s' by pre-save hook", path);
-			goto err;
+			goto finish;
 		}
 		/* a pre-save hook may have changed the text; need to re-take the range */
 		if (write_entire_file)
-			*r = text_range_new(0, text_size(text));
+			*range = text_range_new(0, text_size(text));
 
 		TextSave *ctx = text_save_begin(text, AT_FDCWD, path, file->save_method);
 		if (!ctx) {
 			const char *msg = errno ? strerror(errno) : "try changing `:set savemethod`";
 			vis_info_show(vis, "Can't write `%s': %s", path, msg);
-			goto err;
+			goto finish;
 		}
 
 		bool failure = false;
 		bool visual = vis->mode->visual;
 
 		for (Selection *s = view_selections(&win->view); s; s = view_selections_next(s)) {
-			Filerange range = visual ? view_selections_get(s) : *r;
-			ssize_t written = text_save_write_range(ctx, &range);
-			failure = (written == -1 || (size_t)written != text_range_size(&range));
+			Filerange new_range = visual ? view_selections_get(s) : *range;
+			ssize_t written = text_save_write_range(ctx, &new_range);
+			failure = (written == -1 || (size_t)written != text_range_size(&new_range));
 			if (failure) {
 				text_save_cancel(ctx);
 				break;
@@ -1714,7 +2162,7 @@ static bool cmd_write(Vis *vis, Win *win, Command *cmd, const char *argv[], Sele
 
 		if (failure || !text_save_commit(ctx)) {
 			vis_info_show(vis, "Can't write `%s': %s", path, strerror(errno));
-			goto err;
+			goto finish;
 		}
 
 		if (!file->name) {
@@ -1724,34 +2172,31 @@ static bool cmd_write(Vis *vis, Win *win, Command *cmd, const char *argv[], Sele
 		if (same_file || (!existing_file && strcmp(file->name, path) == 0))
 			file->stat = text_stat(text);
 		vis_event_emit(vis, VIS_EVENT_FILE_SAVE_POST, file, path);
+		result = 1;
+	finish:
 		free(path);
-		continue;
-
-	err:
-		free(path);
-		return false;
 	}
-	return true;
+	return result;
 }
 
-static bool cmd_filter(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	if (!win)
-		return false;
-
+static SAM_CMD_FN(command_filter)
+{
+	ASSERT(win);
 	Buffer bufout = {0}, buferr = {0};
 
-	int status = vis_pipe(vis, win->file, range, &argv[1], &bufout, read_into_buffer, &buferr,
-	                      read_into_buffer, false);
+	char *arg  = (char *)push_s8_zero(&vis->sam.arena, command->u.s8).data;
+	i32 status = vis_pipe(vis, win->file, range, (const char *[]){arg, 0}, &bufout,
+	                      read_into_buffer, &buferr, read_into_buffer, 0);
 
 	if (vis->interrupted) {
 		vis_info_show(vis, "Command cancelled");
 	} else if (status == 0) {
 		char *data  = bufout.data;
 		bufout.data = 0;
-		if (!sam_change(win, sel, range, data, bufout.len, 1))
+		if (!sam_change(win, selection, range, data, bufout.len, 1))
 			free(data);
 	} else {
-		vis_info_show(vis, "Command failed %s", buffer_content0(&buferr));
+		vis_info_show(vis, "Command failed: %s", buffer_content0(&buferr));
 	}
 
 	buffer_release(&bufout);
@@ -1760,44 +2205,53 @@ static bool cmd_filter(Vis *vis, Win *win, Command *cmd, const char *argv[], Sel
 	return !vis->interrupted && status == 0;
 }
 
-static bool cmd_launch(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	Filerange invalid = text_range_new(sel ? view_cursors_pos(sel) : range->start, EPOS);
-	return cmd_filter(vis, win, cmd, argv, sel, &invalid);
+static SAM_CMD_FN(command_launch)
+{
+	ASSERT(win);
+	Filerange invalid = text_range_new(selection ? view_cursors_pos(selection) : range->start, EPOS);
+	return command_filter(vis, win, command, sts, selection, &invalid);
 }
 
-static bool cmd_pipein(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	if (!win)
-		return false;
-	Filerange filter_range = text_range_new(range->end, range->end);
-	bool ret = cmd_filter(vis, win, cmd, argv, sel, &filter_range);
-	if (ret)
-		ret = sam_delete(win, NULL, range);
-	return ret;
+static SAM_CMD_FN(command_pipein)
+{
+	ASSERT(win);
+	Filerange filter_range = (Filerange){.start = range->end, .end = range->end};
+	b32 result = command_filter(vis, win, command, sts, selection, &filter_range);
+	if (result)
+		result = sam_delete(win, 0, range);
+	return result;
 }
 
-static bool cmd_pipeout(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	if (!win)
-		return false;
+static SAM_CMD_FN(command_pipeout)
+{
+	ASSERT(win);
 	Buffer buferr = {0};
 
-	int status = vis_pipe(vis, win->file, range, (const char*[]){ argv[1], NULL }, NULL, NULL,
-	                      &buferr, read_into_buffer, false);
+	char *arg  = (char *)push_s8_zero(&vis->sam.arena, command->u.s8).data;
+	i32 status = vis_pipe(vis, win->file, range, (const char *[]){arg, 0}, 0, 0,
+	                      &buferr, read_into_buffer, 0);
 
 	if (vis->interrupted)
 		vis_info_show(vis, "Command cancelled");
 	else if (status != 0)
-		vis_info_show(vis, "Command failed %s", buffer_content0(&buferr));
+		vis_info_show(vis, "Command failed: %s", buffer_content0(&buferr));
 
 	buffer_release(&buferr);
 
 	return !vis->interrupted && status == 0;
 }
 
-static bool cmd_cd(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	const char *dir = argv[1];
-	if (!dir)
-		dir = getenv("HOME");
-	return dir && chdir(dir) == 0;
+static SAM_CMD_FN(command_cd)
+{
+	b32 result = 0;
+	if (sam_token_peek(sts).type != ST_INVALID) {
+		s8 directory = sam_token_to_s8(sam_tokens_join_until_space(sts));
+		result       = chdir((char *)push_s8_zero(&vis->sam.arena, directory).data) == 0;
+	} else {
+		char *directory = getenv("HOME");
+		result = directory && chdir(directory) == 0;
+	}
+	return result;
 }
 
 #include "vis-cmds.c"

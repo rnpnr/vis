@@ -5,61 +5,46 @@
 
 // FIXME: avoid this redirection?
 typedef struct {
-	CommandDef def;
+	CommandDef definition;
 	VisCommandFunction *func;
 	void *data;
 } CmdUser;
 
-static void cmdfree(CmdUser *cmd) {
-	if (!cmd)
-		return;
-	free((char*)cmd->def.name);
-	free(VIS_HELP_USE((char*)cmd->def.help));
-	free(cmd);
-}
-
-bool vis_cmd_register(Vis *vis, const char *name, const char *help, void *data, VisCommandFunction *func) {
-	if (!name)
-		return false;
-	if (!vis->usercmds && !(vis->usercmds = map_new()))
-		return false;
-	CmdUser *cmd = calloc(1, sizeof *cmd);
-	if (!cmd)
-		return false;
-	if (!(cmd->def.name = strdup(name)))
-		goto err;
-#if CONFIG_HELP
-	if (help && !(cmd->def.help = strdup(help)))
-		goto err;
-#endif
-	cmd->def.flags = CMD_ARGV|CMD_FORCE|CMD_ONCE|CMD_ADDRESS_ALL;
-	cmd->def.func = cmd_user;
-	cmd->func = func;
-	cmd->data = data;
-	if (!map_put(vis->cmds, name, &cmd->def))
-		goto err;
-	if (!map_put(vis->usercmds, name, cmd)) {
-		map_delete(vis->cmds, name);
-		goto err;
+b32 vis_cmd_register(Vis *vis, const char *name, const char *help, void *data, VisCommandFunction *func)
+{
+	b32 result = 0;
+	if (name && (vis->usercmds || (vis->usercmds = map_new()))) {
+		/* TODO(rnp): this will leak if the command is unregistered (probably not common)
+		 * or overwritten(?) (maybe possible) */
+		CmdUser *cmd         = push_struct(&vis->permanent, CmdUser);
+		cmd->definition.name = push_s8_zero(&vis->permanent, c_str_to_s8(name));
+	#if CONFIG_HELP
+		if (help)
+			cmd->definition.help = push_s8_zero(&vis->permanent, c_str_to_s8(help));
+	#endif
+		cmd->definition.flags = CMD_ARGV|CMD_FORCE|CMD_ONCE|CMD_ADDRESS_ALL;
+		cmd->definition.fn    = command_user;
+		cmd->func = func;
+		cmd->data = data;
+		if (map_put(vis->cmds, name, &cmd->definition)) {
+			if (map_put(vis->usercmds, name, cmd)) {
+				result = 1;
+			} else {
+				map_delete(vis->cmds, name);
+			}
+		}
 	}
-	return true;
-err:
-	cmdfree(cmd);
-	return false;
+	return result;
 }
 
-bool vis_cmd_unregister(Vis *vis, const char *name) {
-	if (!name)
-		return true;
-	CmdUser *cmd = map_get(vis->usercmds, name);
-	if (!cmd)
-		return false;
-	if (!map_delete(vis->cmds, name))
-		return false;
-	if (!map_delete(vis->usercmds, name))
-		return false;
-	cmdfree(cmd);
-	return true;
+b32 vis_cmd_unregister(Vis *vis, const char *name)
+{
+	b32 result = name == 0;
+	if (!result) {
+		CmdUser *cmd = map_get(vis->usercmds, name);
+		result = cmd && map_delete(vis->cmds, name) && map_delete(vis->usercmds, name);
+	}
+	return result;
 }
 
 static void option_free(OptionDef *opt) {
@@ -120,9 +105,14 @@ bool vis_option_unregister(Vis *vis, const char *name) {
 	return true;
 }
 
-static bool cmd_user(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	CmdUser *user = map_get(vis->usercmds, argv[0]);
-	return user && user->func(vis, win, user->data, cmd->flags == '!', argv, sel, range);
+static SAM_CMD_FN(command_user)
+{
+	/* TODO(rnp): cleanup: map_get needs length and doesn't need NUL */
+	char    *name = (char *)push_s8_zero(&vis->sam.arena, command->definition->name).data;
+	CmdUser *user = map_get(vis->usercmds, name);
+	char **argv   = sam_tokens_to_argv(&vis->sam.arena, sts);
+	return user && user->func(vis, win, user->data, command->force, (const char **)argv,
+	                          selection, range);
 }
 
 void vis_shell_set(Vis *vis, const char *new_shell) {
@@ -137,47 +127,47 @@ void vis_shell_set(Vis *vis, const char *new_shell) {
 
 /* parse human-readable boolean value in s. If successful, store the result in
  * outval and return true. Else return false and leave outval alone. */
-static bool parse_bool(const char *s, bool *outval) {
-	for (const char **t = (const char*[]){"1", "true", "yes", "on", NULL}; *t; t++) {
-		if (!strcasecmp(s, *t)) {
-			*outval = true;
-			return true;
+static b32
+parse_bool(s8 s, b32 *outval)
+{
+	static s8 true_strs[]  = {s8("1"), s8("true"),  s8("yes"), s8("on")};
+	static s8 false_strs[] = {s8("0"), s8("false"), s8("no"),  s8("off")};
+
+	b32 result = 0;
+	for (i32 i = 0; !result && i < ARRAY_COUNT(true_strs); i++) {
+		if (s8_case_ignore_equal(true_strs[i], s)) {
+			*outval = 1;
+			result  = 1;
 		}
 	}
-	for (const char **f = (const char*[]){"0", "false", "no", "off", NULL}; *f; f++) {
-		if (!strcasecmp(s, *f)) {
-			*outval = false;
-			return true;
+	for (i32 i = 0; !result && i < ARRAY_COUNT(false_strs); i++) {
+		if (s8_case_ignore_equal(false_strs[i], s)) {
+			*outval = 0;
+			result  = 1;
 		}
 	}
-	return false;
+	return result;
 }
 
-static bool cmd_set(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
+static SAM_CMD_FN(command_set)
+{
+	b32 toggle = sam_token_check_pop_force_flag(sts);
+	s8  name   = sam_token_to_s8(sam_token_pop(sts));
+	toggle     = toggle || sam_token_check_pop_force_flag(sts);
 
-	if (!argv[1] || !argv[1][0] || argv[3]) {
-		vis_info_show(vis, "Expecting: set option [value]");
-		return false;
-	}
+	char *name_zero = (char *)push_s8_zero(&vis->sam.arena, name).data;
 
-	char name[256];
-	strncpy(name, argv[1], sizeof(name)-1);
-	char *lastchar = &name[strlen(name)-1];
-	bool toggle = (*lastchar == '!');
-	if (toggle)
-		*lastchar = '\0';
-
-	OptionDef *opt = map_closest(vis->options, name);
+	OptionDef *opt = map_closest(vis->options, name_zero);
 	if (!opt) {
-		vis_info_show(vis, "Unknown option: `%s'", name);
+		vis_info_show(vis, "Unknown option: `%s'", name_zero);
 		return false;
 	}
 
-	if (opt->flags & VIS_OPTION_DEPRECATED && strcmp(opt->context, name) == 0)
-		vis_info_show(vis, "%s is deprecated and will be removed in the next release", name);
+	if (opt->flags & VIS_OPTION_DEPRECATED && strcmp(opt->context, name_zero) == 0)
+		vis_info_show(vis, "%s is deprecated and will be removed in the next release", name_zero);
 
 	if (!win && (opt->flags & VIS_OPTION_NEED_WINDOW)) {
-		vis_info_show(vis, "Need active window for `:set %s'", name);
+		vis_info_show(vis, "Need active window for `:set %s'", name_zero);
 		return false;
 	}
 
@@ -186,7 +176,7 @@ static bool cmd_set(Vis *vis, Win *win, Command *cmd, const char *argv[], Select
 			vis_info_show(vis, "Only boolean options can be toggled");
 			return false;
 		}
-		if (argv[2]) {
+		if (sam_token_peek(sts).type != ST_INVALID) {
 			vis_info_show(vis, "Can not specify option value when toggling");
 			return false;
 		}
@@ -194,41 +184,42 @@ static bool cmd_set(Vis *vis, Win *win, Command *cmd, const char *argv[], Select
 
 	Arg arg;
 	if (opt->flags & VIS_OPTION_TYPE_STRING) {
-		if (!(opt->flags & VIS_OPTION_VALUE_OPTIONAL) && !argv[2]) {
+		if (!(opt->flags & VIS_OPTION_VALUE_OPTIONAL) && sam_token_peek(sts).type != ST_STRING) {
 			vis_info_show(vis, "Expecting string option value");
 			return false;
 		}
-		arg.s = argv[2];
+		/* TODO(rnp): can we just pass the s8 directly? */
+		arg.s = (char *)push_s8_zero(&vis->sam.arena, sam_token_to_s8(sam_token_pop(sts))).data;
 	} else if (opt->flags & VIS_OPTION_TYPE_BOOL) {
-		if (!argv[2]) {
+		if (sam_token_peek(sts).type == ST_INVALID) {
 			arg.b = !toggle;
-		} else if (!parse_bool(argv[2], &arg.b)) {
-			vis_info_show(vis, "Expecting boolean option value not: `%s'", argv[2]);
-			return false;
+		} else {
+			s8 arg2 = sam_token_to_s8(sam_token_pop(sts));
+			if (!parse_bool(arg2, &arg.b)) {
+				vis_info_show(vis, "Expecting boolean option value not: `%*s'",
+				              (i32)arg2.len, (char *)arg2.data);
+				return false;
+			}
 		}
 	} else if (opt->flags & VIS_OPTION_TYPE_NUMBER) {
-		if (!argv[2]) {
+		SamToken number = sam_token_try_pop_number(sts);
+		if (number.type == ST_INVALID) {
 			vis_info_show(vis, "Expecting number");
 			return false;
 		}
-		char *ep;
-		errno = 0;
-		long lval = strtol(argv[2], &ep, 10);
-		if (argv[2][0] == '\0' || *ep != '\0') {
-			vis_info_show(vis, "Invalid number");
-			return false;
-		}
 
-		if ((errno == ERANGE && (lval == LONG_MAX || lval == LONG_MIN)) ||
-		    (lval > INT_MAX || lval < INT_MIN)) {
-			vis_info_show(vis, "Number overflow");
-			return false;
-		}
-
+		i64 lval = s8_to_i64(sam_token_to_s8(number));
 		if (lval < 0) {
 			vis_info_show(vis, "Expecting positive number");
 			return false;
 		}
+
+		/* TODO(rnp): wtf ??? */
+		if (lval > I32_MAX) {
+			vis_info_show(vis, "Number overflow");
+			return false;
+		}
+
 		arg.i = lval;
 	} else {
 		return false;
@@ -372,118 +363,142 @@ static bool cmd_set(Vis *vis, Win *win, Command *cmd, const char *argv[], Select
 	default:
 		if (!opt->func)
 			return false;
-		return opt->func(vis, win, opt->context, toggle, opt->flags, name, &arg);
+		return opt->func(vis, win, opt->context, toggle, opt->flags, name_zero, &arg);
 	}
 
 	return true;
 }
 
-static bool is_file_pattern(const char *pattern) {
-	if (!pattern)
-		return false;
-	struct stat meta;
-	if (stat(pattern, &meta) == 0 && S_ISDIR(meta.st_mode))
-		return true;
-	/* tilde expansion is defined only for the tilde at the
-	   beginning of the pattern. */
-	if (pattern[0] == '~')
-		return true;
-	for (char special[] = "*?[{$", *s = special; *s; s++) {
-		if (strchr(pattern, *s))
-			return true;
-	}
-	return false;
-}
+static s8
+file_open_dialog(Vis *vis, s8 file_name_pattern)
+{
+	s8 result = {0};
+	if (file_name_pattern.len) {
+		Buffer bufcmd = {0}, bufout = {0}, buferr = {0};
 
-static const char *file_open_dialog(Vis *vis, const char *pattern) {
-	static char name[PATH_MAX];
-	name[0] = '\0';
+		s8 vis_open = s8(VIS_OPEN " ");
+		if (buffer_put(&bufcmd, vis_open.data, vis_open.len) &&
+		    buffer_append(&bufcmd, file_name_pattern.data, file_name_pattern.len))
+		{
+			Filerange empty = {0};
+			int status = vis_pipe(vis, vis->win->file, &empty,
+			                      (const char*[]){ buffer_content0(&bufcmd), NULL },
+			                      &bufout, read_into_buffer, &buferr, read_into_buffer,
+			                      false);
 
-	if (!is_file_pattern(pattern))
-		return pattern;
+			if (status == 0) {
+				result = buffer_to_s8(&bufout);
+				if (result.len > 1 && result.data[result.len - 1] == 0)
+					result.len--;
+				result = push_s8_zero(&vis->sam.arena, s8_trim_space(result));
+			} else if (status != 1) {
+				vis_info_show(vis, "Command failed %s", buffer_content0(&buferr));
+			}
 
-	Buffer bufcmd = {0}, bufout = {0}, buferr = {0};
-
-	if (!buffer_put0(&bufcmd, VIS_OPEN " ") || !buffer_append0(&bufcmd, pattern ? pattern : ""))
-		return NULL;
-
-	Filerange empty = text_range_new(0,0);
-	int status = vis_pipe(vis, vis->win->file, &empty,
-		(const char*[]){ buffer_content0(&bufcmd), NULL },
-		&bufout, read_into_buffer, &buferr, read_into_buffer, false);
-
-	if (status == 0)
-		strncpy(name, buffer_content0(&bufout), sizeof(name)-1);
-	else if (status != 1)
-		vis_info_show(vis, "Command failed %s", buffer_content0(&buferr));
-
-	buffer_release(&bufcmd);
-	buffer_release(&bufout);
-	buffer_release(&buferr);
-
-	for (char *end = name+strlen(name)-1; end >= name && isspace((unsigned char)*end); end--)
-		*end = '\0';
-
-	return name[0] ? name : NULL;
-}
-
-static bool openfiles(Vis *vis, const char **files) {
-	for (; *files; files++) {
-		const char *file = file_open_dialog(vis, *files);
-		if (!file)
-			return false;
-		errno = 0;
-		if (!vis_window_new(vis, file)) {
-			vis_info_show(vis, "Could not open `%s' %s", file,
-			                 errno ? strerror(errno) : "");
-			return false;
+			buffer_release(&bufcmd);
+			buffer_release(&bufout);
+			buffer_release(&buferr);
 		}
 	}
-	return true;
+	return result;
 }
 
-static bool cmd_open(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	if (!argv[1])
-		return vis_window_new(vis, NULL);
-	return openfiles(vis, &argv[1]);
+static b32
+openfiles(Vis *vis, SamTokenStream *sts)
+{
+	b32 result = 1;
+	while (result && sam_token_peek(sts).type != ST_INVALID) {
+		s8 file_name_pattern = sam_token_to_s8(sam_tokens_join_until_space(sts));
+		s8 interned_name     = file_open_dialog(vis, file_name_pattern);
+		if (interned_name.len) {
+			if (!vis_window_new(vis, (char *)interned_name.data)) {
+				vis_info_show(vis, "Failed to open: %s", (char *)interned_name.data);
+				result = 0;
+			}
+		} else {
+			result = 0;
+		}
+	}
+	return result;
+}
+
+static SAM_CMD_FN(command_open)
+{
+	b32 result;
+	if (sam_token_peek(sts).type != ST_INVALID) {
+		result = openfiles(vis, sts);
+	} else {
+		result = vis_window_new(vis, 0);
+	}
+	return result;
 }
 
 static void info_unsaved_changes(Vis *vis) {
 	vis_info_show(vis, "No write since last change (add ! to override)");
 }
 
-static bool cmd_edit(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	if (argv[2]) {
-		vis_info_show(vis, "Only 1 filename allowed");
-		return false;
-	}
+static SAM_CMD_FN(command_edit)
+{
+	ASSERT(win);
+
 	Win *oldwin = win;
-	if (!oldwin)
-		return false;
-	if (cmd->flags != '!' && !vis_window_closable(oldwin)) {
+	if (!command->force && !vis_window_closable(oldwin)) {
 		info_unsaved_changes(vis);
 		return false;
 	}
-	if (!argv[1]) {
+
+	if (sam_token_peek(sts).type == ST_INVALID) {
 		if (oldwin->file->refcount > 1) {
-			vis_info_show(vis, "Can not reload file being opened multiple times");
+			/* TODO(rnp): this makes no sense, just reload all views */
+			vis_info_show(vis, "Can not reload file with multiple views");
 			return false;
 		}
 		return vis_window_reload(oldwin);
 	}
-	if (!openfiles(vis, &argv[1]))
+
+	s8 file_name_pattern = sam_token_to_s8(sam_tokens_join_until_space(sts));
+	if (sam_token_peek(sts).type != ST_INVALID) {
+		vis_info_show(vis, "Only 1 filename allowed");
 		return false;
-	if (vis->win != oldwin) {
+	}
+
+	b32 result = 0;
+	s8 interned_name = file_open_dialog(vis, file_name_pattern);
+	if (interned_name.len) {
+		result = vis_window_new(vis, (char *)interned_name.data);
+		if (!result)
+			vis_info_show(vis, "Could not open: %s", (char *)interned_name.data);
+	}
+
+	result = result && vis->win != oldwin;
+	if (result) {
 		Win *newwin = vis->win;
 		vis_window_swap(oldwin, newwin);
 		vis_window_close(oldwin);
 		vis_window_focus(newwin);
 	}
-	return vis->win != oldwin;
+
+	return result;
 }
 
-static bool cmd_read(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	bool ret = false;
+static SAM_CMD_FN(command_read)
+{
+	b32 result = 0;
+#if 0
+
+	/* TODO(rnp): cleanup */
+	i32 count = sts->count - sts->read_index;
+	ASSERT(count > 0);
+	const char **argv = alloc(&vis->sam.arena, const char *, count + 3 + 1);
+	argv[0] = (char *)cmd->definition->name.data;
+	argv[1] = "cat";
+	argv[2] = "--";
+
+	for (i32 i = 3; i < count + 3; i++) {
+		s8 file = sam_token_to_s8(sam_token_pop(sts));
+		argv[i] = (char *)push_s8_zero(&vis->sam.arena, file).data;
+	}
+
 	const size_t first_file = 3;
 	const char *args[MAX_ARGV] = { argv[0], "cat", "--" };
 	const char **name = argv[1] ? &argv[1] : (const char*[]){ ".", NULL };
@@ -493,11 +508,13 @@ static bool cmd_read(Vis *vis, Win *win, Command *cmd, const char *argv[], Selec
 			goto err;
 	}
 	args[LENGTH(args)-1] = NULL;
-	ret = cmd_pipein(vis, win, cmd, args, sel, range);
+	ret = command_pipein(vis, win, cmd, args, sel, range);
 err:
 	for (size_t i = first_file; i < LENGTH(args); i++)
 		free((char*)args[i]);
-	return ret;
+	#endif
+
+	return result;
 }
 
 static bool has_windows(Vis *vis) {
@@ -508,81 +525,109 @@ static bool has_windows(Vis *vis) {
 	return false;
 }
 
-static bool cmd_quit(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	if (cmd->flags != '!' && !vis_window_closable(win)) {
+static SAM_CMD_FN(command_quit)
+{
+	b32 result = 0;
+	if (command->force || vis_window_closable(win)) {
+		vis_window_close(win);
+		if (!has_windows(vis)) {
+			i32 exit_code   = EXIT_SUCCESS;
+			SamToken number = sam_token_try_pop_number(sts);
+			if (number.type != ST_INVALID)
+				exit_code = s8_to_i64(sam_token_to_s8(number));
+			vis_exit(vis, exit_code);
+		}
+		result = 1;
+	} else {
 		info_unsaved_changes(vis);
-		return false;
 	}
-	vis_window_close(win);
-	if (!has_windows(vis))
-		vis_exit(vis, argv[1] ? atoi(argv[1]) : EXIT_SUCCESS);
-	return true;
+	return result;
 }
 
-static bool cmd_qall(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
+static SAM_CMD_FN(command_qall)
+{
+	b32 result = 0;
 	for (Win *next, *win = vis->windows; win; win = next) {
 		next = win->next;
-		if (!win->file->internal && (!text_modified(win->file->text) || cmd->flags == '!'))
+		if (!win->file->internal && (!text_modified(win->file->text) || command->force))
 			vis_window_close(win);
 	}
 	if (!has_windows(vis)) {
-		vis_exit(vis, argv[1] ? atoi(argv[1]) : EXIT_SUCCESS);
-		return true;
+		i32 exit_code   = EXIT_SUCCESS;
+		SamToken number = sam_token_try_pop_number(sts);
+		if (number.type != ST_INVALID)
+			exit_code = s8_to_i64(sam_token_to_s8(number));
+		vis_exit(vis, exit_code);
+		result = 1;
 	} else {
 		info_unsaved_changes(vis);
-		return false;
 	}
+	return result;
 }
 
-static bool cmd_split(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	if (!win)
-		return false;
+static SAM_CMD_FN(command_split)
+{
+	ASSERT(win);
+	b32 result = 0;
 	enum UiOption options = win->options;
 	ui_arrange(&vis->ui, UI_LAYOUT_HORIZONTAL);
-	if (!argv[1])
-		return vis_window_split(win);
-	bool ret = openfiles(vis, &argv[1]);
-	if (ret)
-		win_options_set(vis->win, options);
-	return ret;
+	if (sam_token_peek(sts).type != ST_INVALID) {
+		result = openfiles(vis, sts);
+		if (result)
+			win_options_set(vis->win, options);
+	} else {
+		result = vis_window_split(win);
+	}
+	return result;
 }
 
-static bool cmd_vsplit(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	if (!win)
-		return false;
+static SAM_CMD_FN(command_vsplit)
+{
+	ASSERT(win);
+	b32 result = 0;
 	enum UiOption options = win->options;
 	ui_arrange(&vis->ui, UI_LAYOUT_VERTICAL);
-	if (!argv[1])
-		return vis_window_split(win);
-	bool ret = openfiles(vis, &argv[1]);
-	if (ret)
-		win_options_set(vis->win, options);
-	return ret;
+	if (sam_token_peek(sts).type != ST_INVALID) {
+		result = openfiles(vis, sts);
+		if (result)
+			win_options_set(vis->win, options);
+	} else {
+		result = vis_window_split(win);
+	}
+	return result;
 }
 
-static bool cmd_new(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
+static SAM_CMD_FN(command_new)
+{
 	ui_arrange(&vis->ui, UI_LAYOUT_HORIZONTAL);
 	return vis_window_new(vis, NULL);
 }
 
-static bool cmd_vnew(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
+static SAM_CMD_FN(command_vnew)
+{
 	ui_arrange(&vis->ui, UI_LAYOUT_VERTICAL);
 	return vis_window_new(vis, NULL);
 }
 
-static bool cmd_wq(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	if (!win)
-		return false;
+static SAM_CMD_FN(command_wq)
+{
+	ASSERT(win);
+	b32 result = 0;
 	File *file = win->file;
-	bool unmodified = file->fd == -1 && !file->name && !text_modified(file->text);
-	if (unmodified || cmd_write(vis, win, cmd, argv, sel, range))
-		return cmd_quit(vis, win, cmd, (const char*[]){argv[0], NULL}, sel, range);
-	return false;
+	b32 unmodified = file->fd == -1 && !file->name && !text_modified(file->text);
+	if (unmodified || command_write(vis, win, command, sts, selection, range)) {
+		SamTokenStream stream = {0};
+		result = command_quit(vis, win, command, &stream, selection, range);
+	}
+	return result;
 }
 
-static bool cmd_earlier_later(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	if (!win)
-		return false;
+static SAM_CMD_FN(command_earlier_later)
+{
+	ASSERT(win);
+
+	b32 result = 0;
+	#if 0
 	Text *txt = win->file->text;
 	char *unit = "";
 	long count = 1;
@@ -632,6 +677,8 @@ static bool cmd_earlier_later(Vis *vis, Win *win, Command *cmd, const char *argv
 	vis_info_show(vis, "%s", buf);
 
 	return pos != EPOS;
+	#endif
+	return result;
 }
 
 static int space_replace(char *dest, const char *src, size_t dlen) {
@@ -680,17 +727,17 @@ static bool print_action(const char *key, void *value, void *data) {
 
 static bool print_cmd(const char *key, void *value, void *data) {
 	CommandDef *cmd = value;
-	const char *help = VIS_HELP_USE(cmd->help);
 	char usage[256];
+	b32 is_s = s8_equal(cmd->name, s8("s"));
 	snprintf(usage, sizeof usage, "%s%s%s%s%s%s%s",
-	         cmd->name,
+	         (char *)cmd->name.data,
 	         (cmd->flags & CMD_FORCE) ? "[!]" : "",
 	         (cmd->flags & CMD_TEXT) ? "/text/" : "",
 	         (cmd->flags & CMD_REGEX) ? "/regexp/" : "",
 	         (cmd->flags & CMD_CMD) ? " command" : "",
-	         (cmd->flags & CMD_SHELL) ? (!strcmp(cmd->name, "s") ? "/regexp/text/" : " shell-command") : "",
+	         (cmd->flags & CMD_SHELL) ? (is_s ? "/regexp/text/" : " shell-command") : "",
 	         (cmd->flags & CMD_ARGV) ? " [args...]" : "");
-	return text_appendf(data, "  %-30s %s\n", usage, help ? help : "");
+	return text_appendf(data, "  %-30s %.*s\n", usage, (i32)cmd->help.len, (char *)cmd->help.data);
 }
 
 static bool print_option(const char *key, void *value, void *txt) {
@@ -778,7 +825,8 @@ static void print_symbolic_keys(Vis *vis, Text *txt) {
 	}
 }
 
-static bool cmd_help(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
+static SAM_CMD_FN(command_help)
+{
 	if (!vis_window_new(vis, NULL))
 		return false;
 
@@ -786,7 +834,7 @@ static bool cmd_help(Vis *vis, Win *win, Command *cmd, const char *argv[], Selec
 
 	text_appendf(txt, "vis %s (PID: %ld)\n\n", VERSION, (long)getpid());
 
-	text_appendf(txt, " Modes\n\n");
+	text_append_s8(txt, s8(" Modes\n\n"));
 	for (int i = 0; i < LENGTH(vis_modes); i++) {
 		Mode *mode = &vis_modes[i];
 		char *help = mode->help.len? (char *)mode->help.data : "";
@@ -803,32 +851,34 @@ static bool cmd_help(Vis *vis, Win *win, Command *cmd, const char *argv[], Selec
 	print_mode(&vis_modes[VIS_MODE_VISUAL], txt);
 	print_mode(&vis_modes[VIS_MODE_INSERT], txt);
 
-	text_appendf(txt, "\n :-Commands\n\n");
+	text_append_s8(txt, s8("\n :-Commands\n\n"));
+	for (u32 i = 0; i < ARRAY_COUNT(command_definitions_for_help); i++)
+		print_cmd(0, (void *)(command_definitions_for_help + i), txt);
 	map_iterate(vis->cmds, print_cmd, txt);
 
-	text_appendf(txt, "\n Marks\n\n");
-	text_appendf(txt, "  a-z General purpose marks\n");
+	text_append_s8(txt, s8("\n Marks\n\n"
+	                       "  a-z General purpose marks\n"));
 	for (size_t i = 0; i < LENGTH(vis_marks); i++) {
 		const char *help = VIS_HELP_USE(vis_marks[i].help);
 		text_appendf(txt, "  %c   %s\n", vis_marks[i].name, help ? help : "");
 	}
 
-	text_appendf(txt, "\n Registers\n\n");
-	text_appendf(txt, "  a-z General purpose registers\n");
-	text_appendf(txt, "  A-Z Append to corresponding general purpose register\n");
+	text_append_s8(txt, s8("\n Registers\n\n"
+	                       "  a-z General purpose registers\n"
+	                       "  A-Z Append to corresponding general purpose register\n"));
 	for (size_t i = 0; i < LENGTH(vis_registers); i++) {
 		const char *help = VIS_HELP_USE(vis_registers[i].help);
 		text_appendf(txt, "  %c   %s\n", vis_registers[i].name, help ? help : "");
 	}
 
-	text_appendf(txt, "\n :set command options\n\n");
+	text_append_s8(txt, s8("\n :set command options\n\n"));
 	map_iterate(vis->options, print_option, txt);
 
-	text_appendf(txt, "\n Key binding actions\n\n");
+	text_append_s8(txt, s8("\n Key binding actions\n\n"));
 	map_iterate(vis->actions, print_action, txt);
 
-	text_appendf(txt, "\n Symbolic keys usable for key bindings "
-		"(prefix with C-, S-, and M- for Ctrl, Shift and Alt respectively)\n\n");
+	text_append_s8(txt, s8("\n Symbolic keys usable for key bindings prefix with C-, "
+	                       "S-, and M- for Ctrl, Shift and Alt respectively)\n\n"));
 	print_symbolic_keys(vis, txt);
 
 	char *paths[] = { NULL, NULL };
@@ -837,6 +887,7 @@ static bool cmd_help(Vis *vis, Win *win, Command *cmd, const char *argv[], Selec
 		"Lua paths used to load C libraries (? will be replaced by filename):",
 	};
 
+	/* TODO(rnp): cleanup */
 	if (vis_lua_paths_get(vis, &paths[0], &paths[1])) {
 		for (size_t i = 0; i < LENGTH(paths); i++) {
 			text_appendf(txt, "\n %s\n\n", paths_description[i]);
@@ -850,7 +901,7 @@ static bool cmd_help(Vis *vis, Win *win, Command *cmd, const char *argv[], Selec
 		}
 	}
 
-	text_appendf(txt, "\n Compile time configuration\n\n");
+	text_append_s8(txt, s8("\n Compile time configuration\n\n"));
 
 	const struct {
 		const char *name;
@@ -870,12 +921,19 @@ static bool cmd_help(Vis *vis, Win *win, Command *cmd, const char *argv[], Selec
 	text_save(txt, NULL);
 	view_cursors_to(vis->win->view.selection, 0);
 
-	if (argv[1])
-		vis_motion(vis, VIS_MOVE_SEARCH_FORWARD, argv[1]);
-	return true;
+	if (sam_token_peek(sts).type != ST_INVALID) {
+		s8 search_term = push_s8_zero(&vis->sam.arena,
+		                              sam_token_to_s8(sam_tokens_join_until_space(sts)));
+		vis_motion(vis, VIS_MOVE_SEARCH_FORWARD, (char *)search_term.data);
+	}
+
+	return 1;
 }
 
-static bool cmd_langmap(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
+static SAM_CMD_FN(command_langmap)
+{
+	return 0;
+	#if 0
 	const char *nonlatin = argv[1];
 	const char *latin = argv[2];
 	bool mapped = true;
@@ -904,9 +962,13 @@ static bool cmd_langmap(Vis *vis, Win *win, Command *cmd, const char *argv[], Se
 	}
 
 	return mapped;
+	#endif
 }
 
-static bool cmd_map(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
+static SAM_CMD_FN(command_map)
+{
+	return 0;
+	#if 0
 	bool mapped = false;
 	bool local = strstr(argv[0], "-") != NULL;
 	enum VisMode mode = vis_mode_from(vis, c_str_to_s8(argv[1]));
@@ -939,29 +1001,28 @@ err:
 		vis_binding_free(vis, binding);
 	}
 	return mapped;
+	#endif
 }
 
-static bool cmd_unmap(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	bool unmapped = false;
-	bool local = strstr(argv[0], "-") != NULL;
-	enum VisMode mode = vis_mode_from(vis, c_str_to_s8(argv[1]));
-	const char *lhs = argv[2];
+static SAM_CMD_FN(command_unmap)
+{
+	b32 result        = 0;
+	s8 mode_s8        = sam_token_to_s8(sam_token_pop(sts));
+	s8 lhs_s8         = sam_token_to_s8(sam_token_pop(sts));
+	enum VisMode mode = vis_mode_from(vis, mode_s8);
 
-	if (local && !win) {
-		vis_info_show(vis, "Invalid window for :%s", argv[0]);
-		return false;
+	if (lhs_s8.len && mode != VIS_MODE_INVALID) {
+		b32 window_local = command->definition->name.len > 5;
+		char *lhs = (char *)push_s8_zero(&vis->sam.arena, lhs_s8).data;
+		if (window_local) result = vis_window_mode_unmap(win, mode, lhs);
+		else              result = vis_mode_unmap(vis, mode, lhs);
+
+		if (!result)
+			vis_info_show(vis, "failed to unmap `%.*s` in %.*s mode", (i32)lhs_s8.len,
+			              (char *)lhs_s8.data, (i32)mode_s8.len, (char *)mode_s8.data);
+	} else {
+		vis_info_show(vis, "usage: %s mode lhs", (char *)command->definition->name.data);
 	}
 
-	if (mode == VIS_MODE_INVALID || !lhs) {
-		vis_info_show(vis, "usage: %s mode lhs", argv[0]);
-		return false;
-	}
-
-	if (local)
-		unmapped = vis_window_mode_unmap(win, mode, lhs);
-	else
-		unmapped = vis_mode_unmap(vis, mode, lhs);
-	if (!unmapped)
-		vis_info_show(vis, "Failed to unmap `%s' in %s mode", lhs, argv[1]);
-	return unmapped;
+	return result;
 }

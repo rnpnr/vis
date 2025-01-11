@@ -147,6 +147,9 @@ bool text_modified(const Text*);
  * @return Whether the insertion succeeded.
  */
 bool text_insert(Text*, size_t pos, const char *data, size_t len);
+
+/* TODO(rnp): make Text a non-opaque type */
+#define text_append_s8(t, s) text_insert(t, text_size(t), (char *)(s).data, (s).len)
 /**
  * Delete data at given byte position.
  *
