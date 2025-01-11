@@ -669,7 +669,7 @@ static bool print_keybinding(const char *key, void *value, void *data) {
 
 static void print_mode(Mode *mode, Text *txt) {
 	if (!map_empty(mode->bindings))
-		text_appendf(txt, "\n %s\n\n", mode->name);
+		text_appendf(txt, "\n %*s\n\n", (int)mode->name.len, mode->name.data);
 	map_iterate(mode->bindings, print_keybinding, txt);
 }
 
@@ -789,8 +789,8 @@ static bool cmd_help(Vis *vis, Win *win, Command *cmd, const char *argv[], Selec
 	text_appendf(txt, " Modes\n\n");
 	for (int i = 0; i < LENGTH(vis_modes); i++) {
 		Mode *mode = &vis_modes[i];
-		if (mode->help)
-			text_appendf(txt, "  %-18s\t%s\n", mode->name, mode->help);
+		char *help = mode->help.len? (char *)mode->help.data : "";
+		text_appendf(txt, "  %-18s\t%s\n", mode->name.data, help);
 	}
 
 	if (!map_empty(vis->keymap)) {
@@ -909,7 +909,7 @@ static bool cmd_langmap(Vis *vis, Win *win, Command *cmd, const char *argv[], Se
 static bool cmd_map(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
 	bool mapped = false;
 	bool local = strstr(argv[0], "-") != NULL;
-	enum VisMode mode = vis_mode_from(vis, argv[1]);
+	enum VisMode mode = vis_mode_from(vis, c_str_to_s8(argv[1]));
 
 	if (local && !win) {
 		vis_info_show(vis, "Invalid window for :%s", argv[0]);
@@ -944,7 +944,7 @@ err:
 static bool cmd_unmap(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
 	bool unmapped = false;
 	bool local = strstr(argv[0], "-") != NULL;
-	enum VisMode mode = vis_mode_from(vis, argv[1]);
+	enum VisMode mode = vis_mode_from(vis, c_str_to_s8(argv[1]));
 	const char *lhs = argv[2];
 
 	if (local && !win) {

@@ -77,10 +77,10 @@ void window_status_update(Vis *vis, Win *win) {
 	enum UiOption options = win->options;
 	bool focused = vis->win == win;
 	const char *filename = file_name_get(file);
-	const char *mode = vis->mode->status;
+	s8 mode = vis->mode->status;
 
-	if (focused && mode)
-		strcpy(left_parts[left_count++], mode);
+	if (focused && mode.len)
+		memcpy(left_parts[left_count++], mode.data, mode.len);
 
 	snprintf(left_parts[left_count++], sizeof(left_parts[0]), "%s%s%s",
 	         filename ? filename : "[No Name]",
@@ -88,9 +88,9 @@ void window_status_update(Vis *vis, Win *win) {
 	         vis_macro_recording(vis) ? " @": "");
 
 	int count = vis->action.count;
-	const char *keys = buffer_content0(&vis->input_queue);
-	if (keys && keys[0])
-		snprintf(right_parts[right_count++], sizeof(right_parts[0]), "%s", keys);
+	s8 keys   = buffer_to_s8(&vis->input_queue);
+	if (keys.len > 0)
+		memcpy(right_parts[right_count++], keys.data, keys.len);
 	else if (count != VIS_COUNT_UNKNOWN)
 		snprintf(right_parts[right_count++], sizeof(right_parts[0]), "%d", count);
 

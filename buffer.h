@@ -53,4 +53,6 @@ const char *buffer_content0(Buffer*);
 /** ``read(3p)`` like interface for reading into a Buffer (``context``) */
 ssize_t read_into_buffer(void *context, char *data, size_t len);
 
+#define buffer_to_s8(buf) (s8){.data = (u8 *)(buf)->data, .len = (buf)->len}
+
 #endif

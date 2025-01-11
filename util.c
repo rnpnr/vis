@@ -1,5 +1,12 @@
 #include "util.h"
 
+s8 c_str_to_s8(const char *s)
+{
+	s8 result = {.data = (u8 *)s};
+	for (; s && *s; s++, result.len++);
+	return result;
+}
+
 s8 s8_trim_space(s8 s)
 {
 	while (s.len > 0 && ISSPACE(s.data[0])) { s.len--; s.data++; }
