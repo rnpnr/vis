@@ -103,7 +103,7 @@ bool buffer_append0(Buffer *buf, const char *data) {
 	return ret;
 }
 
-static bool buffer_vappendf(Buffer *buf, const char *fmt, va_list ap) {
+bool buffer_vappendf(Buffer *buf, const char *fmt, va_list ap) {
 	va_list ap_save;
 	va_copy(ap_save, ap);
 	int len = vsnprintf(NULL, 0, fmt, ap);

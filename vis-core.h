@@ -170,6 +170,13 @@ struct Win {
 	Win *prev, *next;       /* neighbouring windows */
 };
 
+typedef struct {
+	Arena  arena;         /* temporary allocator; reset on every sam_cmd() call */
+	Arena  token_stream;  /* arena used strictly for tokens */
+	Buffer log;           /* accumulator for sam errors */
+	b32    should_exit;   /* set to 1 when a command has a fatal error */
+} SamExecutionState;
+
 struct Vis {
 	File *files;                         /* all files currently managed by this editor instance */
 	File *command_file;                  /* special internal file used to store :-command prompt */
@@ -179,6 +186,8 @@ struct Vis {
 	Win *win;                            /* currently active/focused window */
 	Win *message_window;                 /* special window to display multi line messages */
 	Ui ui;                               /* user interface responsible for visual appearance */
+	SamExecutionState sam;               /* state relating to running sam commands */
+	Arena permanent;                     /* arena for allocations needed for the lifetime of the program */
 	Register registers[VIS_REG_INVALID]; /* registers used for text manipulations yank/put etc. and macros */
 	Macro *recording, *last_recording;   /* currently (if non NULL) and least recently recorded macro */
 	const Macro *replaying;              /* macro currently being replayed */
@@ -204,7 +213,6 @@ struct Vis {
 	Action action_prev;                  /* last operator action used by the repeat (dot) command */
 	Mode *mode;                          /* currently active mode, used to search for keybindings */
 	Mode *mode_prev;                     /* previously active user mode */
-	int nesting_level;                   /* parsing state to hold keep track of { } nesting level */
 	volatile bool running;               /* exit main loop once this becomes false */
 	int exit_status;                     /* exit status when terminating main loop */
 	volatile sig_atomic_t interrupted;   /* abort command (SIGINT occurred) */

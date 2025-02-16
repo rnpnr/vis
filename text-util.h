@@ -10,7 +10,7 @@ bool text_range_valid(const Filerange*);
 /* get the size of the range (end-start) or zero if invalid */
 size_t text_range_size(const Filerange*);
 /* create an empty / invalid range of size zero */
-Filerange text_range_empty(void);
+#define text_range_empty() (Filerange){.start = EPOS, .end = EPOS}
 /* merge two ranges into a new one which contains both of them */
 Filerange text_range_union(const Filerange*, const Filerange*);
 /* get intersection of two ranges */

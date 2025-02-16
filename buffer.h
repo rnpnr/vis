@@ -42,6 +42,8 @@ bool buffer_append(Buffer*, const void *data, size_t len);
 bool buffer_append0(Buffer*, const char *data);
 /** Append formatted buffer content, ensures NUL termination on success. */
 bool buffer_appendf(Buffer*, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
+/** Append variadic arguments to buffer with format string */
+bool buffer_vappendf(Buffer *, const char *fmt, va_list) __attribute__((format(printf, 2, 0)));
 /** Return length of a buffer without trailing NUL byte. */
 size_t buffer_length0(Buffer*);
 /**

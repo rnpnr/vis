@@ -6,7 +6,6 @@
 #include <errno.h>
 #include <string.h>
 #include <limits.h>
-#include <sys/mman.h>
 #if CONFIG_ACL
 #include <sys/acl.h>
 #endif
