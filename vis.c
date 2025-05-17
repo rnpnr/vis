@@ -11,6 +11,10 @@
 #include "ui.h"
 #include "vis-subprocess.h"
 
+#if !CONFIG_SYSTEM_TERMKEY
+  #include "termkey-vis.c"
+#endif
+
 #include "util.c"
 
 #include "array.c"
