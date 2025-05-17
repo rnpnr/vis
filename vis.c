@@ -11,6 +11,16 @@
 #include "ui.h"
 #include "vis-subprocess.h"
 
+#if !CONFIG_SYSTEM_TERMKEY
+  #include "termkey-vis.c"
+  /* wtf curses */
+  #undef color_names
+  #undef columns
+  #undef cursor_visible
+  #undef lines
+  #undef tab
+#endif
+
 #include "array.c"
 #include "buffer.c"
 #include "event-basic.c"
