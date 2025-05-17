@@ -343,7 +343,9 @@ EOF
 	test "$curses" = "yes" -a -z "${CFLAGS_CURSES}" && fail "$0: cannot find libcurses"
 fi
 
-if test "$systermkey" != "no" ; then
+if test "$systermkey" = "no" ; then
+	CFLAGS_TERMKEY="-Itermkey"
+else
 	printf "checking for system libtermkey... "
 	cat > "$tmpc" <<EOF
 #include <termkey.h>
