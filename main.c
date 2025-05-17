@@ -26,117 +26,117 @@
 
 /** functions to be called from keybindings */
 /* ignore key, do nothing */
-static const char *nop(Vis*, const char *keys, const Arg *arg);
+static const char *ka_nop(Vis*, const char *keys, const Arg *arg);
 /* record/replay macro indicated by keys */
-static const char *macro_record(Vis*, const char *keys, const Arg *arg);
-static const char *macro_replay(Vis*, const char *keys, const Arg *arg);
+static const char *ka_macro_record(Vis*, const char *keys, const Arg *arg);
+static const char *ka_macro_replay(Vis*, const char *keys, const Arg *arg);
 /* temporarily suspend the editor and return to the shell, type 'fg' to get back */
-static const char *suspend(Vis*, const char *keys, const Arg *arg);
+static const char *ka_suspend(Vis*, const char *keys, const Arg *arg);
 /* reset count if set, otherwise remove all but the primary selection */
-static const char *normalmode_escape(Vis*, const char *keys, const Arg *arg);
+static const char *ka_normalmode_escape(Vis*, const char *keys, const Arg *arg);
 /* reset count if set, otherwise switch to normal mode */
-static const char *visualmode_escape(Vis*, const char *keys, const Arg *arg);
+static const char *ka_visualmode_escape(Vis*, const char *keys, const Arg *arg);
 /* switch to mode indicated by arg->i */
-static const char *switchmode(Vis*, const char *keys, const Arg *arg);
+static const char *ka_switchmode(Vis*, const char *keys, const Arg *arg);
 /* switch to insert mode after performing movement indicated by arg->i */
-static const char *insertmode(Vis*, const char *keys, const Arg *arg);
+static const char *ka_insertmode(Vis*, const char *keys, const Arg *arg);
 /* switch to replace mode after performing movement indicated by arg->i */
-static const char *replacemode(Vis*, const char *keys, const Arg *arg);
+static const char *ka_replacemode(Vis*, const char *keys, const Arg *arg);
 /* add a new line either before or after the one where the cursor currently is */
-static const char *openline(Vis*, const char *keys, const Arg *arg);
+static const char *ka_openline(Vis*, const char *keys, const Arg *arg);
 /* join lines from current cursor position to movement indicated by arg */
-static const char *join(Vis*, const char *keys, const Arg *arg);
+static const char *ka_join(Vis*, const char *keys, const Arg *arg);
 /* perform last action i.e. action_prev again */
-static const char *repeat(Vis*, const char *keys, const Arg *arg);
+static const char *ka_repeat(Vis*, const char *keys, const Arg *arg);
 /* replace character at cursor with one from keys */
-static const char *replace(Vis*, const char *keys, const Arg *arg);
+static const char *ka_replace(Vis*, const char *keys, const Arg *arg);
 /* create a new cursor on the previous (arg->i < 0) or next (arg->i > 0) line */
-static const char *selections_new(Vis*, const char *keys, const Arg *arg);
+static const char *ka_selections_new(Vis*, const char *keys, const Arg *arg);
 /* try to align all selections on the same column */
-static const char *selections_align(Vis*, const char *keys, const Arg *arg);
+static const char *ka_selections_align(Vis*, const char *keys, const Arg *arg);
 /* try to align all selections by inserting the correct amount of white spaces */
-static const char *selections_align_indent(Vis*, const char *keys, const Arg *arg);
+static const char *ka_selections_align_indent(Vis*, const char *keys, const Arg *arg);
 /* remove all but the primary cursor and their selections */
-static const char *selections_clear(Vis*, const char *keys, const Arg *arg);
+static const char *ka_selections_clear(Vis*, const char *keys, const Arg *arg);
 /* remove the least recently added selection */
-static const char *selections_remove(Vis*, const char *keys, const Arg *arg);
+static const char *ka_selections_remove(Vis*, const char *keys, const Arg *arg);
 /* remove count (or arg->i)-th selection column */
-static const char *selections_remove_column(Vis*, const char *keys, const Arg *arg);
+static const char *ka_selections_remove_column(Vis*, const char *keys, const Arg *arg);
 /* remove all but the count (or arg->i)-th selection column */
-static const char *selections_remove_column_except(Vis*, const char *keys, const Arg *arg);
+static const char *ka_selections_remove_column_except(Vis*, const char *keys, const Arg *arg);
 /* move to the previous (arg->i < 0) or next (arg->i > 0) selection */
-static const char *selections_navigate(Vis*, const char *keys, const Arg *arg);
+static const char *ka_selections_navigate(Vis*, const char *keys, const Arg *arg);
 /* select the next region matching the current selection */
-static const char *selections_match_next(Vis*, const char *keys, const Arg *arg);
+static const char *ka_selections_match_next(Vis*, const char *keys, const Arg *arg);
 /* clear current selection but select next match */
-static const char *selections_match_skip(Vis*, const char *keys, const Arg *arg);
+static const char *ka_selections_match_skip(Vis*, const char *keys, const Arg *arg);
 /* rotate selection content count times left (arg->i < 0) or right (arg->i > 0) */
-static const char *selections_rotate(Vis*, const char *keys, const Arg *arg);
+static const char *ka_selections_rotate(Vis*, const char *keys, const Arg *arg);
 /* remove leading and trailing white spaces from selections */
-static const char *selections_trim(Vis*, const char *keys, const Arg *arg);
+static const char *ka_selections_trim(Vis*, const char *keys, const Arg *arg);
 /* save active selections to mark */
-static const char *selections_save(Vis*, const char *keys, const Arg *arg);
+static const char *ka_selections_save(Vis*, const char *keys, const Arg *arg);
 /* restore selections from mark */
-static const char *selections_restore(Vis*, const char *keys, const Arg *arg);
+static const char *ka_selections_restore(Vis*, const char *keys, const Arg *arg);
 /* union selections from mark */
-static const char *selections_union(Vis*, const char *keys, const Arg *arg);
+static const char *ka_selections_union(Vis*, const char *keys, const Arg *arg);
 /* intersect selections from mark */
-static const char *selections_intersect(Vis*, const char *keys, const Arg *arg);
+static const char *ka_selections_intersect(Vis*, const char *keys, const Arg *arg);
 /* perform complement of current active selections */
-static const char *selections_complement(Vis*, const char *keys, const Arg *arg);
+static const char *ka_selections_complement(Vis*, const char *keys, const Arg *arg);
 /* subtract selections from mark */
-static const char *selections_minus(Vis*, const char *keys, const Arg *arg);
+static const char *ka_selections_minus(Vis*, const char *keys, const Arg *arg);
 /* adjust current used count according to keys */
-static const char *count(Vis*, const char *keys, const Arg *arg);
+static const char *ka_count(Vis*, const char *keys, const Arg *arg);
 /* move to the count-th line or if not given either to the first (arg->i < 0)
  *  or last (arg->i > 0) line of file */
-static const char *gotoline(Vis*, const char *keys, const Arg *arg);
+static const char *ka_gotoline(Vis*, const char *keys, const Arg *arg);
 /* make the current action use the operator indicated by arg->i */
-static const char *operator(Vis*, const char *keys, const Arg *arg);
+static const char *ka_operator(Vis*, const char *keys, const Arg *arg);
 /* blocks to read a key and performs movement indicated by arg->i which
  * should be one of VIS_MOVE_{TO,TILL}_{,LINE}_{RIGHT,LEFT}*/
-static const char *movement_key(Vis*, const char *keys, const Arg *arg);
+static const char *ka_movement_key(Vis*, const char *keys, const Arg *arg);
 /* perform the movement as indicated by arg->i */
-static const char *movement(Vis*, const char *keys, const Arg *arg);
+static const char *ka_movement(Vis*, const char *keys, const Arg *arg);
 /* let the current operator affect the range indicated by the text object arg->i */
-static const char *textobj(Vis*, const char *keys, const Arg *arg);
+static const char *ka_textobj(Vis*, const char *keys, const Arg *arg);
 /* move to the other end of selected text */
-static const char *selection_end(Vis*, const char *keys, const Arg *arg);
+static const char *ka_selection_end(Vis*, const char *keys, const Arg *arg);
 /* use register indicated by keys for the current operator */
-static const char *reg(Vis*, const char *keys, const Arg *arg);
+static const char *ka_reg(Vis*, const char *keys, const Arg *arg);
 /* use mark indicated by keys for the current action */
-static const char *mark(Vis*, const char *keys, const Arg *arg);
+static const char *ka_mark(Vis*, const char *keys, const Arg *arg);
 /* {un,re}do last action, redraw window */
-static const char *undo(Vis*, const char *keys, const Arg *arg);
-static const char *redo(Vis*, const char *keys, const Arg *arg);
+static const char *ka_undo(Vis*, const char *keys, const Arg *arg);
+static const char *ka_redo(Vis*, const char *keys, const Arg *arg);
 /* earlier, later action chronologically, redraw window */
-static const char *earlier(Vis*, const char *keys, const Arg *arg);
-static const char *later(Vis*, const char *keys, const Arg *arg);
+static const char *ka_earlier(Vis*, const char *keys, const Arg *arg);
+static const char *ka_later(Vis*, const char *keys, const Arg *arg);
 /* delete from the current cursor position to the end of
  * movement as indicated by arg->i */
-static const char *delete(Vis*, const char *keys, const Arg *arg);
+static const char *ka_delete(Vis*, const char *keys, const Arg *arg);
 /* insert register content indicated by keys at current cursor position */
-static const char *insert_register(Vis*, const char *keys, const Arg *arg);
+static const char *ka_insert_register(Vis*, const char *keys, const Arg *arg);
 /* show a user prompt to get input with title arg->s */
-static const char *prompt_show(Vis*, const char *keys, const Arg *arg);
+static const char *ka_prompt_show(Vis*, const char *keys, const Arg *arg);
 /* blocks to read 3 consecutive digits and inserts the corresponding byte value */
-static const char *insert_verbatim(Vis*, const char *keys, const Arg *arg);
+static const char *ka_insert_verbatim(Vis*, const char *keys, const Arg *arg);
 /* scroll window content according to arg->i which can be either PAGE, PAGE_HALF,
  * or an arbitrary number of lines. a multiplier overrides what is given in arg->i.
  * negative values scroll back, positive forward. */
-static const char *wscroll(Vis*, const char *keys, const Arg *arg);
+static const char *ka_wscroll(Vis*, const char *keys, const Arg *arg);
 /* similar to scroll, but do only move window content not cursor position */
-static const char *wslide(Vis*, const char *keys, const Arg *arg);
+static const char *ka_wslide(Vis*, const char *keys, const Arg *arg);
 /* call editor function as indicated by arg->f */
-static const char *call(Vis*, const char *keys, const Arg *arg);
+static const char *ka_call(Vis*, const char *keys, const Arg *arg);
 /* call window function as indicated by arg->w */
-static const char *window(Vis*, const char *keys, const Arg *arg);
+static const char *ka_window(Vis*, const char *keys, const Arg *arg);
 /* show info about Unicode character at cursor position */
-static const char *unicode_info(Vis*, const char *keys, const Arg *arg);
+static const char *ka_unicode_info(Vis*, const char *keys, const Arg *arg);
 /* either go to count % of file or to matching item */
-static const char *percent(Vis*, const char *keys, const Arg *arg);
+static const char *ka_percent(Vis*, const char *keys, const Arg *arg);
 /* navigate jumplist next (arg->i > 0), prev (arg->i < 0), save (arg->i = 0) */
-static const char *jumplist(Vis*, const char *keys, const Arg *arg);
+static const char *ka_jumplist(Vis*, const char *keys, const Arg *arg);
 
 enum {
 	VIS_ACTION_EDITOR_SUSPEND,
@@ -320,877 +320,877 @@ static const KeyAction vis_action[] = {
 	[VIS_ACTION_EDITOR_SUSPEND] = {
 		"vis-suspend",
 		VIS_HELP("Suspend the editor")
-		suspend,
+		ka_suspend,
 	},
 	[VIS_ACTION_CURSOR_CHAR_PREV] = {
 		"vis-motion-char-prev",
 		VIS_HELP("Move cursor left, to the previous character")
-		movement, { .i = VIS_MOVE_CHAR_PREV }
+		ka_movement, { .i = VIS_MOVE_CHAR_PREV }
 	},
 	[VIS_ACTION_CURSOR_CHAR_NEXT] = {
 		"vis-motion-char-next",
 		VIS_HELP("Move cursor right, to the next character")
-		movement, { .i = VIS_MOVE_CHAR_NEXT }
+		ka_movement, { .i = VIS_MOVE_CHAR_NEXT }
 	},
 	[VIS_ACTION_CURSOR_LINE_CHAR_PREV] = {
 		"vis-motion-line-char-prev",
 		VIS_HELP("Move cursor left, to the previous character on the same line")
-		movement, { .i = VIS_MOVE_LINE_CHAR_PREV }
+		ka_movement, { .i = VIS_MOVE_LINE_CHAR_PREV }
 	},
 	[VIS_ACTION_CURSOR_LINE_CHAR_NEXT] = {
 		"vis-motion-line-char-next",
 		VIS_HELP("Move cursor right, to the next character on the same line")
-		movement, { .i = VIS_MOVE_LINE_CHAR_NEXT }
+		ka_movement, { .i = VIS_MOVE_LINE_CHAR_NEXT }
 	},
 	[VIS_ACTION_CURSOR_CODEPOINT_PREV] = {
 		"vis-motion-codepoint-prev",
 		VIS_HELP("Move to the previous Unicode codepoint")
-		movement, { .i = VIS_MOVE_CODEPOINT_PREV }
+		ka_movement, { .i = VIS_MOVE_CODEPOINT_PREV }
 	},
 	[VIS_ACTION_CURSOR_CODEPOINT_NEXT] = {
 		"vis-motion-codepoint-next",
 		VIS_HELP("Move to the next Unicode codepoint")
-		movement, { .i = VIS_MOVE_CODEPOINT_NEXT }
+		ka_movement, { .i = VIS_MOVE_CODEPOINT_NEXT }
 	},
 	[VIS_ACTION_CURSOR_WORD_START_PREV] = {
 		"vis-motion-word-start-prev",
 		VIS_HELP("Move cursor words backwards")
-		movement, { .i = VIS_MOVE_WORD_START_PREV }
+		ka_movement, { .i = VIS_MOVE_WORD_START_PREV }
 	},
 	[VIS_ACTION_CURSOR_WORD_START_NEXT] = {
 		"vis-motion-word-start-next",
 		VIS_HELP("Move cursor words forwards")
-		movement, { .i = VIS_MOVE_WORD_START_NEXT }
+		ka_movement, { .i = VIS_MOVE_WORD_START_NEXT }
 	},
 	[VIS_ACTION_CURSOR_WORD_END_PREV] = {
 		"vis-motion-word-end-prev",
 		VIS_HELP("Move cursor backwards to the end of word")
-		movement, { .i = VIS_MOVE_WORD_END_PREV }
+		ka_movement, { .i = VIS_MOVE_WORD_END_PREV }
 	},
 	[VIS_ACTION_CURSOR_WORD_END_NEXT] = {
 		"vis-motion-word-end-next",
 		VIS_HELP("Move cursor forward to the end of word")
-		movement, { .i = VIS_MOVE_WORD_END_NEXT }
+		ka_movement, { .i = VIS_MOVE_WORD_END_NEXT }
 	},
 	[VIS_ACTION_CURSOR_LONGWORD_START_PREV] = {
 		"vis-motion-bigword-start-prev",
 		VIS_HELP("Move cursor WORDS backwards")
-		movement, { .i = VIS_MOVE_LONGWORD_START_PREV }
+		ka_movement, { .i = VIS_MOVE_LONGWORD_START_PREV }
 	},
 	[VIS_ACTION_CURSOR_LONGWORD_START_NEXT] = {
 		"vis-motion-bigword-start-next",
 		VIS_HELP("Move cursor WORDS forwards")
-		movement, { .i = VIS_MOVE_LONGWORD_START_NEXT }
+		ka_movement, { .i = VIS_MOVE_LONGWORD_START_NEXT }
 	},
 	[VIS_ACTION_CURSOR_LONGWORD_END_PREV] = {
 		"vis-motion-bigword-end-prev",
 		VIS_HELP("Move cursor backwards to the end of WORD")
-		movement, { .i = VIS_MOVE_LONGWORD_END_PREV }
+		ka_movement, { .i = VIS_MOVE_LONGWORD_END_PREV }
 	},
 	[VIS_ACTION_CURSOR_LONGWORD_END_NEXT] = {
 		"vis-motion-bigword-end-next",
 		VIS_HELP("Move cursor forward to the end of WORD")
-		movement, { .i = VIS_MOVE_LONGWORD_END_NEXT }
+		ka_movement, { .i = VIS_MOVE_LONGWORD_END_NEXT }
 	},
 	[VIS_ACTION_CURSOR_LINE_UP] = {
 		"vis-motion-line-up",
 		VIS_HELP("Move cursor line upwards")
-		movement, { .i = VIS_MOVE_LINE_UP }
+		ka_movement, { .i = VIS_MOVE_LINE_UP }
 	},
 	[VIS_ACTION_CURSOR_LINE_DOWN] = {
 		"vis-motion-line-down",
 		VIS_HELP("Move cursor line downwards")
-		movement, { .i = VIS_MOVE_LINE_DOWN }
+		ka_movement, { .i = VIS_MOVE_LINE_DOWN }
 	},
 	[VIS_ACTION_CURSOR_LINE_START] = {
 		"vis-motion-line-start",
 		VIS_HELP("Move cursor to first non-blank character of the line")
-		movement, { .i = VIS_MOVE_LINE_START }
+		ka_movement, { .i = VIS_MOVE_LINE_START }
 	},
 	[VIS_ACTION_CURSOR_LINE_FINISH] = {
 		"vis-motion-line-finish",
 		VIS_HELP("Move cursor to last non-blank character of the line")
-		movement, { .i = VIS_MOVE_LINE_FINISH }
+		ka_movement, { .i = VIS_MOVE_LINE_FINISH }
 	},
 	[VIS_ACTION_CURSOR_LINE_BEGIN] = {
 		"vis-motion-line-begin",
 		VIS_HELP("Move cursor to first character of the line")
-		movement, { .i = VIS_MOVE_LINE_BEGIN }
+		ka_movement, { .i = VIS_MOVE_LINE_BEGIN }
 	},
 	[VIS_ACTION_CURSOR_LINE_END] = {
 		"vis-motion-line-end",
 		VIS_HELP("Move cursor to end of the line")
-		movement, { .i = VIS_MOVE_LINE_END }
+		ka_movement, { .i = VIS_MOVE_LINE_END }
 	},
 	[VIS_ACTION_CURSOR_SCREEN_LINE_UP] = {
 		"vis-motion-screenline-up",
 		VIS_HELP("Move cursor screen/display line upwards")
-		movement, { .i = VIS_MOVE_SCREEN_LINE_UP }
+		ka_movement, { .i = VIS_MOVE_SCREEN_LINE_UP }
 	},
 	[VIS_ACTION_CURSOR_SCREEN_LINE_DOWN] = {
 		"vis-motion-screenline-down",
 		VIS_HELP("Move cursor screen/display line downwards")
-		movement, { .i = VIS_MOVE_SCREEN_LINE_DOWN }
+		ka_movement, { .i = VIS_MOVE_SCREEN_LINE_DOWN }
 	},
 	[VIS_ACTION_CURSOR_SCREEN_LINE_BEGIN] = {
 		"vis-motion-screenline-begin",
 		VIS_HELP("Move cursor to beginning of screen/display line")
-		movement, { .i = VIS_MOVE_SCREEN_LINE_BEGIN }
+		ka_movement, { .i = VIS_MOVE_SCREEN_LINE_BEGIN }
 	},
 	[VIS_ACTION_CURSOR_SCREEN_LINE_MIDDLE] = {
 		"vis-motion-screenline-middle",
 		VIS_HELP("Move cursor to middle of screen/display line")
-		movement, { .i = VIS_MOVE_SCREEN_LINE_MIDDLE }
+		ka_movement, { .i = VIS_MOVE_SCREEN_LINE_MIDDLE }
 	},
 	[VIS_ACTION_CURSOR_SCREEN_LINE_END] = {
 		"vis-motion-screenline-end",
 		VIS_HELP("Move cursor to end of screen/display line")
-		movement, { .i = VIS_MOVE_SCREEN_LINE_END }
+		ka_movement, { .i = VIS_MOVE_SCREEN_LINE_END }
 	},
 	[VIS_ACTION_CURSOR_PERCENT] = {
 		"vis-motion-percent",
 		VIS_HELP("Move to count % of file or matching item")
-		percent
+		ka_percent
 	},
 	[VIS_ACTION_CURSOR_BYTE] = {
 		"vis-motion-byte",
 		VIS_HELP("Move to absolute byte position")
-		movement, { .i = VIS_MOVE_BYTE }
+		ka_movement, { .i = VIS_MOVE_BYTE }
 	},
 	[VIS_ACTION_CURSOR_BYTE_LEFT] = {
 		"vis-motion-byte-left",
 		VIS_HELP("Move count bytes to the left")
-		movement, { .i = VIS_MOVE_BYTE_LEFT }
+		ka_movement, { .i = VIS_MOVE_BYTE_LEFT }
 	},
 	[VIS_ACTION_CURSOR_BYTE_RIGHT] = {
 		"vis-motion-byte-right",
 		VIS_HELP("Move count bytes to the right")
-		movement, { .i = VIS_MOVE_BYTE_RIGHT }
+		ka_movement, { .i = VIS_MOVE_BYTE_RIGHT }
 	},
 	[VIS_ACTION_CURSOR_PARAGRAPH_PREV] = {
 		"vis-motion-paragraph-prev",
 		VIS_HELP("Move cursor paragraph backward")
-		movement, { .i = VIS_MOVE_PARAGRAPH_PREV }
+		ka_movement, { .i = VIS_MOVE_PARAGRAPH_PREV }
 	},
 	[VIS_ACTION_CURSOR_PARAGRAPH_NEXT] = {
 		"vis-motion-paragraph-next",
 		VIS_HELP("Move cursor paragraph forward")
-		movement, { .i = VIS_MOVE_PARAGRAPH_NEXT }
+		ka_movement, { .i = VIS_MOVE_PARAGRAPH_NEXT }
 	},
 	[VIS_ACTION_CURSOR_SENTENCE_PREV] = {
 		"vis-motion-sentence-prev",
 		VIS_HELP("Move cursor sentence backward")
-		movement, { .i = VIS_MOVE_SENTENCE_PREV }
+		ka_movement, { .i = VIS_MOVE_SENTENCE_PREV }
 	},
 	[VIS_ACTION_CURSOR_SENTENCE_NEXT] = {
 		"vis-motion-sentence-next",
 		VIS_HELP("Move cursor sentence forward")
-		movement, { .i = VIS_MOVE_SENTENCE_NEXT }
+		ka_movement, { .i = VIS_MOVE_SENTENCE_NEXT }
 	},
 	[VIS_ACTION_CURSOR_BLOCK_START] = {
 		"vis-motion-block-start",
 		VIS_HELP("Move cursor to the opening curly brace in a block")
-		movement, { .i = VIS_MOVE_BLOCK_START }
+		ka_movement, { .i = VIS_MOVE_BLOCK_START }
 	},
 	[VIS_ACTION_CURSOR_BLOCK_END] = {
 		"vis-motion-block-end",
 		VIS_HELP("Move cursor to the closing curly brace in a block")
-		movement, { .i = VIS_MOVE_BLOCK_END }
+		ka_movement, { .i = VIS_MOVE_BLOCK_END }
 	},
 	[VIS_ACTION_CURSOR_PARENTHESIS_START] = {
 		"vis-motion-parenthesis-start",
 		VIS_HELP("Move cursor to the opening parenthesis inside a pair of parentheses")
-		movement, { .i = VIS_MOVE_PARENTHESIS_START }
+		ka_movement, { .i = VIS_MOVE_PARENTHESIS_START }
 	},
 	[VIS_ACTION_CURSOR_PARENTHESIS_END] = {
 		"vis-motion-parenthesis-end",
 		VIS_HELP("Move cursor to the closing parenthesis inside a pair of parentheses")
-		movement, { .i = VIS_MOVE_PARENTHESIS_END }
+		ka_movement, { .i = VIS_MOVE_PARENTHESIS_END }
 	},
 	[VIS_ACTION_CURSOR_COLUMN] = {
 		"vis-motion-column",
 		VIS_HELP("Move cursor to given column of current line")
-		movement, { .i = VIS_MOVE_COLUMN }
+		ka_movement, { .i = VIS_MOVE_COLUMN }
 	},
 	[VIS_ACTION_CURSOR_LINE_FIRST] = {
 		"vis-motion-line-first",
 		VIS_HELP("Move cursor to given line (defaults to first)")
-		gotoline, { .i = -1 }
+		ka_gotoline, { .i = -1 }
 	},
 	[VIS_ACTION_CURSOR_LINE_LAST] = {
 		"vis-motion-line-last",
 		VIS_HELP("Move cursor to given line (defaults to last)")
-		gotoline, { .i = +1 }
+		ka_gotoline, { .i = +1 }
 	},
 	[VIS_ACTION_CURSOR_WINDOW_LINE_TOP] = {
 		"vis-motion-window-line-top",
 		VIS_HELP("Move cursor to top line of the window")
-		movement, { .i = VIS_MOVE_WINDOW_LINE_TOP }
+		ka_movement, { .i = VIS_MOVE_WINDOW_LINE_TOP }
 	},
 	[VIS_ACTION_CURSOR_WINDOW_LINE_MIDDLE] = {
 		"vis-motion-window-line-middle",
 		VIS_HELP("Move cursor to middle line of the window")
-		movement, { .i = VIS_MOVE_WINDOW_LINE_MIDDLE }
+		ka_movement, { .i = VIS_MOVE_WINDOW_LINE_MIDDLE }
 	},
 	[VIS_ACTION_CURSOR_WINDOW_LINE_BOTTOM] = {
 		"vis-motion-window-line-bottom",
 		VIS_HELP("Move cursor to bottom line of the window")
-		movement, { .i = VIS_MOVE_WINDOW_LINE_BOTTOM }
+		ka_movement, { .i = VIS_MOVE_WINDOW_LINE_BOTTOM }
 	},
 	[VIS_ACTION_CURSOR_SEARCH_REPEAT_FORWARD] = {
 		"vis-motion-search-repeat-forward",
 		VIS_HELP("Move cursor to next match in forward direction")
-		movement, { .i = VIS_MOVE_SEARCH_REPEAT_FORWARD }
+		ka_movement, { .i = VIS_MOVE_SEARCH_REPEAT_FORWARD }
 	},
 	[VIS_ACTION_CURSOR_SEARCH_REPEAT_BACKWARD] = {
 		"vis-motion-search-repeat-backward",
 		VIS_HELP("Move cursor to previous match in backward direction")
-		movement, { .i = VIS_MOVE_SEARCH_REPEAT_BACKWARD }
+		ka_movement, { .i = VIS_MOVE_SEARCH_REPEAT_BACKWARD }
 	},
 	[VIS_ACTION_CURSOR_SEARCH_REPEAT] = {
 		"vis-motion-search-repeat",
 		VIS_HELP("Move cursor to next match")
-		movement, { .i = VIS_MOVE_SEARCH_REPEAT }
+		ka_movement, { .i = VIS_MOVE_SEARCH_REPEAT }
 	},
 	[VIS_ACTION_CURSOR_SEARCH_REPEAT_REVERSE] = {
 		"vis-motion-search-repeat-reverse",
 		VIS_HELP("Move cursor to next match in opposite direction")
-		movement, { .i = VIS_MOVE_SEARCH_REPEAT_REVERSE }
+		ka_movement, { .i = VIS_MOVE_SEARCH_REPEAT_REVERSE }
 	},
 	[VIS_ACTION_CURSOR_SEARCH_WORD_FORWARD] = {
 		"vis-motion-search-word-forward",
 		VIS_HELP("Move cursor to next occurrence of the word under cursor")
-		movement, { .i = VIS_MOVE_SEARCH_WORD_FORWARD }
+		ka_movement, { .i = VIS_MOVE_SEARCH_WORD_FORWARD }
 	},
 	[VIS_ACTION_CURSOR_SEARCH_WORD_BACKWARD] = {
 		"vis-motion-search-word-backward",
 		VIS_HELP("Move cursor to previous occurrence of the word under cursor")
-		movement, { .i = VIS_MOVE_SEARCH_WORD_BACKWARD }
+		ka_movement, { .i = VIS_MOVE_SEARCH_WORD_BACKWARD }
 	},
 	[VIS_ACTION_WINDOW_PAGE_UP] = {
 		"vis-window-page-up",
 		VIS_HELP("Scroll window pages backwards (upwards)")
-		wscroll, { .i = -PAGE }
+		ka_wscroll, { .i = -PAGE }
 	},
 	[VIS_ACTION_WINDOW_HALFPAGE_UP] = {
 		"vis-window-halfpage-up",
 		VIS_HELP("Scroll window half pages backwards (upwards)")
-		wscroll, { .i = -PAGE_HALF }
+		ka_wscroll, { .i = -PAGE_HALF }
 	},
 	[VIS_ACTION_WINDOW_PAGE_DOWN] = {
 		"vis-window-page-down",
 		VIS_HELP("Scroll window pages forwards (downwards)")
-		wscroll, { .i = +PAGE }
+		ka_wscroll, { .i = +PAGE }
 	},
 	[VIS_ACTION_WINDOW_HALFPAGE_DOWN] = {
 		"vis-window-halfpage-down",
 		VIS_HELP("Scroll window half pages forwards (downwards)")
-		wscroll, { .i = +PAGE_HALF }
+		ka_wscroll, { .i = +PAGE_HALF }
 	},
 	[VIS_ACTION_MODE_NORMAL] = {
 		"vis-mode-normal",
 		VIS_HELP("Enter normal mode")
-		switchmode, { .i = VIS_MODE_NORMAL }
+		ka_switchmode, { .i = VIS_MODE_NORMAL }
 	},
 	[VIS_ACTION_MODE_NORMAL_ESCAPE] = {
 		"vis-mode-normal-escape",
 		VIS_HELP("Reset count or remove all non-primary selections")
-		normalmode_escape,
+		ka_normalmode_escape,
 	},
 	[VIS_ACTION_MODE_VISUAL] = {
 		"vis-mode-visual-charwise",
 		VIS_HELP("Enter characterwise visual mode")
-		switchmode, { .i = VIS_MODE_VISUAL }
+		ka_switchmode, { .i = VIS_MODE_VISUAL }
 	},
 	[VIS_ACTION_MODE_VISUAL_ESCAPE] = {
 		"vis-mode-visual-escape",
 		VIS_HELP("Reset count or switch to normal mode")
-		visualmode_escape,
+		ka_visualmode_escape,
 	},
 	[VIS_ACTION_MODE_VISUAL_LINE] = {
 		"vis-mode-visual-linewise",
 		VIS_HELP("Enter linewise visual mode")
-		switchmode, { .i = VIS_MODE_VISUAL_LINE }
+		ka_switchmode, { .i = VIS_MODE_VISUAL_LINE }
 	},
 	[VIS_ACTION_MODE_INSERT] = {
 		"vis-mode-insert",
 		VIS_HELP("Enter insert mode")
-		insertmode, { .i = VIS_MOVE_NOP }
+		ka_insertmode, { .i = VIS_MOVE_NOP }
 	},
 	[VIS_ACTION_MODE_REPLACE] = {
 		"vis-mode-replace",
 		VIS_HELP("Enter replace mode")
-		replacemode, { .i = VIS_MOVE_NOP }
+		ka_replacemode, { .i = VIS_MOVE_NOP }
 	},
 	[VIS_ACTION_DELETE_CHAR_PREV] = {
 		"vis-delete-char-prev",
 		VIS_HELP("Delete the previous character")
-		delete, { .i = VIS_MOVE_CHAR_PREV }
+		ka_delete, { .i = VIS_MOVE_CHAR_PREV }
 	},
 	[VIS_ACTION_DELETE_CHAR_NEXT] = {
 		"vis-delete-char-next",
 		VIS_HELP("Delete the next character")
-		delete, { .i = VIS_MOVE_CHAR_NEXT }
+		ka_delete, { .i = VIS_MOVE_CHAR_NEXT }
 	},
 	[VIS_ACTION_DELETE_LINE_BEGIN] = {
 		"vis-delete-line-begin",
 		VIS_HELP("Delete until the start of the current line")
-		delete, { .i = VIS_MOVE_LINE_BEGIN }
+		ka_delete, { .i = VIS_MOVE_LINE_BEGIN }
 	},
 	[VIS_ACTION_DELETE_WORD_PREV] = {
 		"vis-delete-word-prev",
 		VIS_HELP("Delete the previous WORD")
-		delete, { .i = VIS_MOVE_WORD_START_PREV }
+		ka_delete, { .i = VIS_MOVE_WORD_START_PREV }
 	},
 	[VIS_ACTION_JUMPLIST_PREV] = {
 		"vis-jumplist-prev",
 		VIS_HELP("Go to older cursor position in jump list")
-		jumplist, { .i = -1 }
+		ka_jumplist, { .i = -1 }
 	},
 	[VIS_ACTION_JUMPLIST_NEXT] = {
 		"vis-jumplist-next",
 		VIS_HELP("Go to newer cursor position in jump list")
-		jumplist, { .i = +1 }
+		ka_jumplist, { .i = +1 }
 	},
 	[VIS_ACTION_JUMPLIST_SAVE] = {
 		"vis-jumplist-save",
 		VIS_HELP("Save current selections in jump list")
-		jumplist, { .i = 0 }
+		ka_jumplist, { .i = 0 }
 	},
 	[VIS_ACTION_UNDO] = {
 		"vis-undo",
 		VIS_HELP("Undo last change")
-		undo,
+		ka_undo,
 	},
 	[VIS_ACTION_REDO] = {
 		"vis-redo",
 		VIS_HELP("Redo last change")
-		redo,
+		ka_redo,
 	},
 	[VIS_ACTION_EARLIER] = {
 		"vis-earlier",
 		VIS_HELP("Goto older text state")
-		earlier,
+		ka_earlier,
 	},
 	[VIS_ACTION_LATER] = {
 		"vis-later",
 		VIS_HELP("Goto newer text state")
-		later,
+		ka_later,
 	},
 	[VIS_ACTION_MACRO_RECORD] = {
 		"vis-macro-record",
 		VIS_HELP("Record macro into given register")
-		macro_record,
+		ka_macro_record,
 	},
 	[VIS_ACTION_MACRO_REPLAY] = {
 		"vis-macro-replay",
 		VIS_HELP("Replay macro, execute the content of the given register")
-		macro_replay,
+		ka_macro_replay,
 	},
 	[VIS_ACTION_MARK] = {
 		"vis-mark",
 		VIS_HELP("Use given mark for next action")
-		mark,
+		ka_mark,
 	},
 	[VIS_ACTION_REDRAW] = {
 		"vis-redraw",
 		VIS_HELP("Redraw current editor content")
-		call, { .f = vis_redraw }
+		ka_call, { .f = vis_redraw }
 	},
 	[VIS_ACTION_REPLACE_CHAR] = {
 		"vis-replace-char",
 		VIS_HELP("Replace the character under the cursor")
-		replace,
+		ka_replace,
 	},
 	[VIS_ACTION_TOTILL_REPEAT] = {
 		"vis-motion-totill-repeat",
 		VIS_HELP("Repeat latest to/till motion")
-		movement, { .i = VIS_MOVE_TOTILL_REPEAT }
+		ka_movement, { .i = VIS_MOVE_TOTILL_REPEAT }
 	},
 	[VIS_ACTION_TOTILL_REVERSE] = {
 		"vis-motion-totill-reverse",
 		VIS_HELP("Repeat latest to/till motion but in opposite direction")
-		movement, { .i = VIS_MOVE_TOTILL_REVERSE }
+		ka_movement, { .i = VIS_MOVE_TOTILL_REVERSE }
 	},
 	[VIS_ACTION_PROMPT_SEARCH_FORWARD] = {
 		"vis-search-forward",
 		VIS_HELP("Search forward")
-		prompt_show, { .s = "/" }
+		ka_prompt_show, { .s = "/" }
 	},
 	[VIS_ACTION_PROMPT_SEARCH_BACKWARD] = {
 		"vis-search-backward",
 		VIS_HELP("Search backward")
-		prompt_show, { .s = "?" }
+		ka_prompt_show, { .s = "?" }
 	},
 	[VIS_ACTION_TILL_LEFT] = {
 		"vis-motion-till-left",
 		VIS_HELP("Till after the occurrence of character to the left")
-		movement_key, { .i = VIS_MOVE_TILL_LEFT }
+		ka_movement_key, { .i = VIS_MOVE_TILL_LEFT }
 	},
 	[VIS_ACTION_TILL_RIGHT] = {
 		"vis-motion-till-right",
 		VIS_HELP("Till before the occurrence of character to the right")
-		movement_key, { .i = VIS_MOVE_TILL_RIGHT }
+		ka_movement_key, { .i = VIS_MOVE_TILL_RIGHT }
 	},
 	[VIS_ACTION_TILL_LINE_LEFT] = {
 		"vis-motion-till-line-left",
 		VIS_HELP("Till after the occurrence of character to the left on the current line")
-		movement_key, { .i = VIS_MOVE_TILL_LINE_LEFT }
+		ka_movement_key, { .i = VIS_MOVE_TILL_LINE_LEFT }
 	},
 	[VIS_ACTION_TILL_LINE_RIGHT] = {
 		"vis-motion-till-line-right",
 		VIS_HELP("Till before the occurrence of character to the right on the current line")
-		movement_key, { .i = VIS_MOVE_TILL_LINE_RIGHT }
+		ka_movement_key, { .i = VIS_MOVE_TILL_LINE_RIGHT }
 	},
 	[VIS_ACTION_TO_LEFT] = {
 		"vis-motion-to-left",
 		VIS_HELP("To the first occurrence of character to the left")
-		movement_key, { .i = VIS_MOVE_TO_LEFT }
+		ka_movement_key, { .i = VIS_MOVE_TO_LEFT }
 	},
 	[VIS_ACTION_TO_RIGHT] = {
 		"vis-motion-to-right",
 		VIS_HELP("To the first occurrence of character to the right")
-		movement_key, { .i = VIS_MOVE_TO_RIGHT }
+		ka_movement_key, { .i = VIS_MOVE_TO_RIGHT }
 	},
 	[VIS_ACTION_TO_LINE_LEFT] = {
 		"vis-motion-to-line-left",
 		VIS_HELP("To the first occurrence of character to the left on the current line")
-		movement_key, { .i = VIS_MOVE_TO_LINE_LEFT }
+		ka_movement_key, { .i = VIS_MOVE_TO_LINE_LEFT }
 	},
 	[VIS_ACTION_TO_LINE_RIGHT] = {
 		"vis-motion-to-line-right",
 		VIS_HELP("To the first occurrence of character to the right on the current line")
-		movement_key, { .i = VIS_MOVE_TO_LINE_RIGHT }
+		ka_movement_key, { .i = VIS_MOVE_TO_LINE_RIGHT }
 	},
 	[VIS_ACTION_REGISTER] = {
 		"vis-register",
 		VIS_HELP("Use given register for next operator")
-		reg,
+		ka_reg,
 	},
 	[VIS_ACTION_OPERATOR_CHANGE] = {
 		"vis-operator-change",
 		VIS_HELP("Change operator")
-		operator, { .i = VIS_OP_CHANGE }
+		ka_operator, { .i = VIS_OP_CHANGE }
 	},
 	[VIS_ACTION_OPERATOR_DELETE] = {
 		"vis-operator-delete",
 		VIS_HELP("Delete operator")
-		operator, { .i = VIS_OP_DELETE }
+		ka_operator, { .i = VIS_OP_DELETE }
 	},
 	[VIS_ACTION_OPERATOR_YANK] = {
 		"vis-operator-yank",
 		VIS_HELP("Yank operator")
-		operator, { .i = VIS_OP_YANK }
+		ka_operator, { .i = VIS_OP_YANK }
 	},
 	[VIS_ACTION_OPERATOR_SHIFT_LEFT] = {
 		"vis-operator-shift-left",
 		VIS_HELP("Shift left operator")
-		operator, { .i = VIS_OP_SHIFT_LEFT }
+		ka_operator, { .i = VIS_OP_SHIFT_LEFT }
 	},
 	[VIS_ACTION_OPERATOR_SHIFT_RIGHT] = {
 		"vis-operator-shift-right",
 		VIS_HELP("Shift right operator")
-		operator, { .i = VIS_OP_SHIFT_RIGHT }
+		ka_operator, { .i = VIS_OP_SHIFT_RIGHT }
 	},
 	[VIS_ACTION_COUNT] = {
 		"vis-count",
 		VIS_HELP("Count specifier")
-		count,
+		ka_count,
 	},
 	[VIS_ACTION_INSERT_NEWLINE] = {
 		"vis-insert-newline",
 		VIS_HELP("Insert a line break (depending on file type)")
-		call, { .f = vis_insert_nl }
+		ka_call, { .f = vis_insert_nl }
 	},
 	[VIS_ACTION_INSERT_TAB] = {
 		"vis-insert-tab",
 		VIS_HELP("Insert a tab (might be converted to spaces)")
-		call, { .f = vis_insert_tab }
+		ka_call, { .f = vis_insert_tab }
 	},
 	[VIS_ACTION_INSERT_VERBATIM] = {
 		"vis-insert-verbatim",
 		VIS_HELP("Insert Unicode character based on code point")
-		insert_verbatim,
+		ka_insert_verbatim,
 	},
 	[VIS_ACTION_INSERT_REGISTER] = {
 		"vis-insert-register",
 		VIS_HELP("Insert specified register content")
-		insert_register,
+		ka_insert_register,
 	},
 	[VIS_ACTION_WINDOW_NEXT] = {
 		"vis-window-next",
 		VIS_HELP("Focus next window")
-		call, { .f = vis_window_next }
+		ka_call, { .f = vis_window_next }
 	},
 	[VIS_ACTION_WINDOW_PREV] = {
 		"vis-window-prev",
 		VIS_HELP("Focus previous window")
-		call, { .f = vis_window_prev }
+		ka_call, { .f = vis_window_prev }
 	},
 	[VIS_ACTION_APPEND_CHAR_NEXT] = {
 		"vis-append-char-next",
 		VIS_HELP("Append text after the cursor")
-		insertmode, { .i = VIS_MOVE_LINE_CHAR_NEXT }
+		ka_insertmode, { .i = VIS_MOVE_LINE_CHAR_NEXT }
 	},
 	[VIS_ACTION_APPEND_LINE_END] = {
 		"vis-append-line-end",
 		VIS_HELP("Append text after the end of the line")
-		insertmode, { .i = VIS_MOVE_LINE_END },
+		ka_insertmode, { .i = VIS_MOVE_LINE_END },
 	},
 	[VIS_ACTION_INSERT_LINE_START] = {
 		"vis-insert-line-start",
 		VIS_HELP("Insert text before the first non-blank in the line")
-		insertmode, { .i = VIS_MOVE_LINE_START },
+		ka_insertmode, { .i = VIS_MOVE_LINE_START },
 	},
 	[VIS_ACTION_OPEN_LINE_ABOVE] = {
 		"vis-open-line-above",
 		VIS_HELP("Begin a new line above the cursor")
-		openline, { .i = -1 }
+		ka_openline, { .i = -1 }
 	},
 	[VIS_ACTION_OPEN_LINE_BELOW] = {
 		"vis-open-line-below",
 		VIS_HELP("Begin a new line below the cursor")
-		openline, { .i = +1 }
+		ka_openline, { .i = +1 }
 	},
 	[VIS_ACTION_JOIN_LINES] = {
 		"vis-join-lines",
 		VIS_HELP("Join selected lines")
-		join, { .s = " " }
+		ka_join, { .s = " " }
 	},
 	[VIS_ACTION_JOIN_LINES_TRIM] = {
 		"vis-join-lines-trim",
 		VIS_HELP("Join selected lines, remove white space")
-		join, { .s = "" }
+		ka_join, { .s = "" }
 	},
 	[VIS_ACTION_PROMPT_SHOW] = {
 		"vis-prompt-show",
 		VIS_HELP("Show editor command line prompt")
-		prompt_show, { .s = ":" }
+		ka_prompt_show, { .s = ":" }
 	},
 	[VIS_ACTION_REPEAT] = {
 		"vis-repeat",
 		VIS_HELP("Repeat latest editor command")
-		repeat
+		ka_repeat
 	},
 	[VIS_ACTION_SELECTION_FLIP] = {
 		"vis-selection-flip",
 		VIS_HELP("Flip selection, move cursor to other end")
-		selection_end,
+		ka_selection_end,
 	},
 	[VIS_ACTION_WINDOW_REDRAW_TOP] = {
 		"vis-window-redraw-top",
 		VIS_HELP("Redraw cursor line at the top of the window")
-		window, { .w = view_redraw_top }
+		ka_window, { .w = view_redraw_top }
 	},
 	[VIS_ACTION_WINDOW_REDRAW_CENTER] = {
 		"vis-window-redraw-center",
 		VIS_HELP("Redraw cursor line at the center of the window")
-		window, { .w = view_redraw_center }
+		ka_window, { .w = view_redraw_center }
 	},
 	[VIS_ACTION_WINDOW_REDRAW_BOTTOM] = {
 		"vis-window-redraw-bottom",
 		VIS_HELP("Redraw cursor line at the bottom of the window")
-		window, { .w = view_redraw_bottom }
+		ka_window, { .w = view_redraw_bottom }
 	},
 	[VIS_ACTION_WINDOW_SLIDE_UP] = {
 		"vis-window-slide-up",
 		VIS_HELP("Slide window content upwards")
-		wslide, { .i = -1 }
+		ka_wslide, { .i = -1 }
 	},
 	[VIS_ACTION_WINDOW_SLIDE_DOWN] = {
 		"vis-window-slide-down",
 		VIS_HELP("Slide window content downwards")
-		wslide, { .i = +1 }
+		ka_wslide, { .i = +1 }
 	},
 	[VIS_ACTION_PUT_AFTER] = {
 		"vis-put-after",
 		VIS_HELP("Put text after the cursor")
-		operator, { .i = VIS_OP_PUT_AFTER }
+		ka_operator, { .i = VIS_OP_PUT_AFTER }
 	},
 	[VIS_ACTION_PUT_BEFORE] = {
 		"vis-put-before",
 		VIS_HELP("Put text before the cursor")
-		operator, { .i = VIS_OP_PUT_BEFORE }
+		ka_operator, { .i = VIS_OP_PUT_BEFORE }
 	},
 	[VIS_ACTION_SELECTIONS_NEW_LINE_ABOVE] = {
 		"vis-selection-new-lines-above",
 		VIS_HELP("Create a new selection on the line above")
-		selections_new, { .i = -1 }
+		ka_selections_new, { .i = -1 }
 	},
 	[VIS_ACTION_SELECTIONS_NEW_LINE_ABOVE_FIRST] = {
 		"vis-selection-new-lines-above-first",
 		VIS_HELP("Create a new selection on the line above the first selection")
-		selections_new, { .i = INT_MIN }
+		ka_selections_new, { .i = INT_MIN }
 	},
 	[VIS_ACTION_SELECTIONS_NEW_LINE_BELOW] = {
 		"vis-selection-new-lines-below",
 		VIS_HELP("Create a new selection on the line below")
-		selections_new, { .i = +1 }
+		ka_selections_new, { .i = +1 }
 	},
 	[VIS_ACTION_SELECTIONS_NEW_LINE_BELOW_LAST] = {
 		"vis-selection-new-lines-below-last",
 		VIS_HELP("Create a new selection on the line below the last selection")
-		selections_new, { .i = INT_MAX }
+		ka_selections_new, { .i = INT_MAX }
 	},
 	[VIS_ACTION_SELECTIONS_NEW_LINES_BEGIN] = {
 		"vis-selection-new-lines-begin",
 		VIS_HELP("Create a new selection at the start of every line covered by selection")
-		operator, { .i = VIS_OP_CURSOR_SOL }
+		ka_operator, { .i = VIS_OP_CURSOR_SOL }
 	},
 	[VIS_ACTION_SELECTIONS_NEW_LINES_END] = {
 		"vis-selection-new-lines-end",
 		VIS_HELP("Create a new selection at the end of every line covered by selection")
-		operator, { .i = VIS_OP_CURSOR_EOL }
+		ka_operator, { .i = VIS_OP_CURSOR_EOL }
 	},
 	[VIS_ACTION_SELECTIONS_NEW_MATCH_ALL] = {
 		"vis-selection-new-match-all",
 		VIS_HELP("Select all regions matching the current selection")
-		selections_match_next, { .b = true }
+		ka_selections_match_next, { .b = true }
 	},
 	[VIS_ACTION_SELECTIONS_NEW_MATCH_NEXT] = {
 		"vis-selection-new-match-next",
 		VIS_HELP("Select the next region matching the current selection")
-		selections_match_next,
+		ka_selections_match_next,
 	},
 	[VIS_ACTION_SELECTIONS_NEW_MATCH_SKIP] = {
 		"vis-selection-new-match-skip",
 		VIS_HELP("Clear current selection, but select next match")
-		selections_match_skip,
+		ka_selections_match_skip,
 	},
 	[VIS_ACTION_SELECTIONS_ALIGN] = {
 		"vis-selections-align",
 		VIS_HELP("Try to align all selections on the same column")
-		selections_align,
+		ka_selections_align,
 	},
 	[VIS_ACTION_SELECTIONS_ALIGN_INDENT_LEFT] = {
 		"vis-selections-align-indent-left",
 		VIS_HELP("Left-align all selections by inserting spaces")
-		selections_align_indent, { .i = -1 }
+		ka_selections_align_indent, { .i = -1 }
 	},
 	[VIS_ACTION_SELECTIONS_ALIGN_INDENT_RIGHT] = {
 		"vis-selections-align-indent-right",
 		VIS_HELP("Right-align all selections by inserting spaces")
-		selections_align_indent, { .i = +1 }
+		ka_selections_align_indent, { .i = +1 }
 	},
 	[VIS_ACTION_SELECTIONS_REMOVE_ALL] = {
 		"vis-selections-remove-all",
 		VIS_HELP("Remove all but the primary selection")
-		selections_clear,
+		ka_selections_clear,
 	},
 	[VIS_ACTION_SELECTIONS_REMOVE_LAST] = {
 		"vis-selections-remove-last",
 		VIS_HELP("Remove primary selection")
-		selections_remove,
+		ka_selections_remove,
 	},
 	[VIS_ACTION_SELECTIONS_REMOVE_COLUMN] = {
 		"vis-selections-remove-column",
 		VIS_HELP("Remove count selection column")
-		selections_remove_column, { .i = 1 }
+		ka_selections_remove_column, { .i = 1 }
 	},
 	[VIS_ACTION_SELECTIONS_REMOVE_COLUMN_EXCEPT] = {
 		"vis-selections-remove-column-except",
 		VIS_HELP("Remove all but the count selection column")
-		selections_remove_column_except, { .i = 1 }
+		ka_selections_remove_column_except, { .i = 1 }
 	},
 	[VIS_ACTION_SELECTIONS_PREV] = {
 		"vis-selection-prev",
 		VIS_HELP("Move to the previous selection")
-		selections_navigate, { .i = -PAGE_HALF }
+		ka_selections_navigate, { .i = -PAGE_HALF }
 	},
 	[VIS_ACTION_SELECTIONS_NEXT] = {
 		"vis-selection-next",
 		VIS_HELP("Move to the next selection")
-		selections_navigate, { .i = +PAGE_HALF }
+		ka_selections_navigate, { .i = +PAGE_HALF }
 	},
 	[VIS_ACTION_SELECTIONS_ROTATE_LEFT] = {
 		"vis-selections-rotate-left",
 		VIS_HELP("Rotate selections left")
-		selections_rotate, { .i = -1 }
+		ka_selections_rotate, { .i = -1 }
 	},
 	[VIS_ACTION_SELECTIONS_ROTATE_RIGHT] = {
 		"vis-selections-rotate-right",
 		VIS_HELP("Rotate selections right")
-		selections_rotate, { .i = +1 }
+		ka_selections_rotate, { .i = +1 }
 	},
 	[VIS_ACTION_SELECTIONS_TRIM] = {
 		"vis-selections-trim",
 		VIS_HELP("Remove leading and trailing white space from selections")
-		selections_trim
+		ka_selections_trim
 	},
 	[VIS_ACTION_SELECTIONS_SAVE] = {
 		"vis-selections-save",
 		VIS_HELP("Save currently active selections to mark")
-		selections_save
+		ka_selections_save
 	},
 	[VIS_ACTION_SELECTIONS_RESTORE] = {
 		"vis-selections-restore",
 		VIS_HELP("Restore selections from mark")
-		selections_restore
+		ka_selections_restore
 	},
 	[VIS_ACTION_SELECTIONS_UNION] = {
 		"vis-selections-union",
 		VIS_HELP("Add selections from mark")
-		selections_union
+		ka_selections_union
 	},
 	[VIS_ACTION_SELECTIONS_INTERSECT] = {
 		"vis-selections-intersect",
 		VIS_HELP("Intersect with selections from mark")
-		selections_intersect
+		ka_selections_intersect
 	},
 	[VIS_ACTION_SELECTIONS_COMPLEMENT] = {
 		"vis-selections-complement",
 		VIS_HELP("Complement selections")
-		selections_complement
+		ka_selections_complement
 	},
 	[VIS_ACTION_SELECTIONS_MINUS] = {
 		"vis-selections-minus",
 		VIS_HELP("Subtract selections from mark")
-		selections_minus
+		ka_selections_minus
 	},
 	[VIS_ACTION_TEXT_OBJECT_WORD_OUTER] = {
 		"vis-textobject-word-outer",
 		VIS_HELP("A word leading and trailing whitespace included")
-		textobj, { .i = VIS_TEXTOBJECT_OUTER_WORD }
+		ka_textobj, { .i = VIS_TEXTOBJECT_OUTER_WORD }
 	},
 	[VIS_ACTION_TEXT_OBJECT_WORD_INNER] = {
 		"vis-textobject-word-inner",
 		VIS_HELP("A word leading and trailing whitespace excluded")
-		textobj, { .i = VIS_TEXTOBJECT_INNER_WORD }
+		ka_textobj, { .i = VIS_TEXTOBJECT_INNER_WORD }
 	},
 	[VIS_ACTION_TEXT_OBJECT_LONGWORD_OUTER] = {
 		"vis-textobject-bigword-outer",
 		VIS_HELP("A WORD leading and trailing whitespace included")
-		textobj, { .i = VIS_TEXTOBJECT_OUTER_LONGWORD }
+		ka_textobj, { .i = VIS_TEXTOBJECT_OUTER_LONGWORD }
 	},
 	[VIS_ACTION_TEXT_OBJECT_LONGWORD_INNER] = {
 		"vis-textobject-bigword-inner",
 		VIS_HELP("A WORD leading and trailing whitespace excluded")
-		textobj, { .i = VIS_TEXTOBJECT_INNER_LONGWORD }
+		ka_textobj, { .i = VIS_TEXTOBJECT_INNER_LONGWORD }
 	},
 	[VIS_ACTION_TEXT_OBJECT_SENTENCE] = {
 		"vis-textobject-sentence",
 		VIS_HELP("A sentence")
-		textobj, { .i = VIS_TEXTOBJECT_SENTENCE }
+		ka_textobj, { .i = VIS_TEXTOBJECT_SENTENCE }
 	},
 	[VIS_ACTION_TEXT_OBJECT_PARAGRAPH] = {
 		"vis-textobject-paragraph",
 		VIS_HELP("A paragraph")
-		textobj, { .i = VIS_TEXTOBJECT_PARAGRAPH }
+		ka_textobj, { .i = VIS_TEXTOBJECT_PARAGRAPH }
 	},
 	[VIS_ACTION_TEXT_OBJECT_PARAGRAPH_OUTER] = {
 		"vis-textobject-paragraph-outer",
 		VIS_HELP("A paragraph (outer variant)")
-		textobj, { .i = VIS_TEXTOBJECT_PARAGRAPH_OUTER }
+		ka_textobj, { .i = VIS_TEXTOBJECT_PARAGRAPH_OUTER }
 	},
 	[VIS_ACTION_TEXT_OBJECT_SQUARE_BRACKET_OUTER] = {
 		"vis-textobject-square-bracket-outer",
 		VIS_HELP("[] block (outer variant)")
-		textobj, { .i = VIS_TEXTOBJECT_OUTER_SQUARE_BRACKET }
+		ka_textobj, { .i = VIS_TEXTOBJECT_OUTER_SQUARE_BRACKET }
 	},
 	[VIS_ACTION_TEXT_OBJECT_SQUARE_BRACKET_INNER] = {
 		"vis-textobject-square-bracket-inner",
 		VIS_HELP("[] block (inner variant)")
-		textobj, { .i = VIS_TEXTOBJECT_INNER_SQUARE_BRACKET }
+		ka_textobj, { .i = VIS_TEXTOBJECT_INNER_SQUARE_BRACKET }
 	},
 	[VIS_ACTION_TEXT_OBJECT_PARENTHESIS_OUTER] = {
 		"vis-textobject-parenthesis-outer",
 		VIS_HELP("() block (outer variant)")
-		textobj, { .i = VIS_TEXTOBJECT_OUTER_PARENTHESIS }
+		ka_textobj, { .i = VIS_TEXTOBJECT_OUTER_PARENTHESIS }
 	},
 	[VIS_ACTION_TEXT_OBJECT_PARENTHESIS_INNER] = {
 		"vis-textobject-parenthesis-inner",
 		VIS_HELP("() block (inner variant)")
-		textobj, { .i = VIS_TEXTOBJECT_INNER_PARENTHESIS }
+		ka_textobj, { .i = VIS_TEXTOBJECT_INNER_PARENTHESIS }
 	},
 	[VIS_ACTION_TEXT_OBJECT_ANGLE_BRACKET_OUTER] = {
 		"vis-textobject-angle-bracket-outer",
 		VIS_HELP("<> block (outer variant)")
-		textobj, { .i = VIS_TEXTOBJECT_OUTER_ANGLE_BRACKET }
+		ka_textobj, { .i = VIS_TEXTOBJECT_OUTER_ANGLE_BRACKET }
 	},
 	[VIS_ACTION_TEXT_OBJECT_ANGLE_BRACKET_INNER] = {
 		"vis-textobject-angle-bracket-inner",
 		VIS_HELP("<> block (inner variant)")
-		textobj, { .i = VIS_TEXTOBJECT_INNER_ANGLE_BRACKET }
+		ka_textobj, { .i = VIS_TEXTOBJECT_INNER_ANGLE_BRACKET }
 	},
 	[VIS_ACTION_TEXT_OBJECT_CURLY_BRACKET_OUTER] = {
 		"vis-textobject-curly-bracket-outer",
 		VIS_HELP("{} block (outer variant)")
-		textobj, { .i = VIS_TEXTOBJECT_OUTER_CURLY_BRACKET }
+		ka_textobj, { .i = VIS_TEXTOBJECT_OUTER_CURLY_BRACKET }
 	},
 	[VIS_ACTION_TEXT_OBJECT_CURLY_BRACKET_INNER] = {
 		"vis-textobject-curly-bracket-inner",
 		VIS_HELP("{} block (inner variant)")
-		textobj, { .i = VIS_TEXTOBJECT_INNER_CURLY_BRACKET }
+		ka_textobj, { .i = VIS_TEXTOBJECT_INNER_CURLY_BRACKET }
 	},
 	[VIS_ACTION_TEXT_OBJECT_QUOTE_OUTER] = {
 		"vis-textobject-quote-outer",
 		VIS_HELP("A quoted string, including the quotation marks")
-		textobj, { .i = VIS_TEXTOBJECT_OUTER_QUOTE }
+		ka_textobj, { .i = VIS_TEXTOBJECT_OUTER_QUOTE }
 	},
 	[VIS_ACTION_TEXT_OBJECT_QUOTE_INNER] = {
 		"vis-textobject-quote-inner",
 		VIS_HELP("A quoted string, excluding the quotation marks")
-		textobj, { .i = VIS_TEXTOBJECT_INNER_QUOTE }
+		ka_textobj, { .i = VIS_TEXTOBJECT_INNER_QUOTE }
 	},
 	[VIS_ACTION_TEXT_OBJECT_SINGLE_QUOTE_OUTER] = {
 		"vis-textobject-single-quote-outer",
 		VIS_HELP("A single quoted string, including the quotation marks")
-		textobj, { .i = VIS_TEXTOBJECT_OUTER_SINGLE_QUOTE }
+		ka_textobj, { .i = VIS_TEXTOBJECT_OUTER_SINGLE_QUOTE }
 	},
 	[VIS_ACTION_TEXT_OBJECT_SINGLE_QUOTE_INNER] = {
 		"vis-textobject-single-quote-inner",
 		VIS_HELP("A single quoted string, excluding the quotation marks")
-		textobj, { .i = VIS_TEXTOBJECT_INNER_SINGLE_QUOTE }
+		ka_textobj, { .i = VIS_TEXTOBJECT_INNER_SINGLE_QUOTE }
 	},
 	[VIS_ACTION_TEXT_OBJECT_BACKTICK_OUTER] = {
 		"vis-textobject-backtick-outer",
 		VIS_HELP("A backtick delimited string (outer variant)")
-		textobj, { .i = VIS_TEXTOBJECT_OUTER_BACKTICK }
+		ka_textobj, { .i = VIS_TEXTOBJECT_OUTER_BACKTICK }
 	},
 	[VIS_ACTION_TEXT_OBJECT_BACKTICK_INNER] = {
 		"vis-textobject-backtick-inner",
 		VIS_HELP("A backtick delimited string (inner variant)")
-		textobj, { .i = VIS_TEXTOBJECT_INNER_BACKTICK }
+		ka_textobj, { .i = VIS_TEXTOBJECT_INNER_BACKTICK }
 	},
 	[VIS_ACTION_TEXT_OBJECT_LINE_OUTER] = {
 		"vis-textobject-line-outer",
 		VIS_HELP("The whole line")
-		textobj, { .i = VIS_TEXTOBJECT_OUTER_LINE }
+		ka_textobj, { .i = VIS_TEXTOBJECT_OUTER_LINE }
 	},
 	[VIS_ACTION_TEXT_OBJECT_LINE_INNER] = {
 		"vis-textobject-line-inner",
 		VIS_HELP("The whole line, excluding leading and trailing whitespace")
-		textobj, { .i = VIS_TEXTOBJECT_INNER_LINE }
+		ka_textobj, { .i = VIS_TEXTOBJECT_INNER_LINE }
 	},
 	[VIS_ACTION_TEXT_OBJECT_INDENTATION] = {
 		"vis-textobject-indentation",
 		VIS_HELP("All adjacent lines with the same indentation level as the current one")
-		textobj, { .i = VIS_TEXTOBJECT_INDENTATION }
+		ka_textobj, { .i = VIS_TEXTOBJECT_INDENTATION }
 	},
 	[VIS_ACTION_TEXT_OBJECT_SEARCH_FORWARD] = {
 		"vis-textobject-search-forward",
 		VIS_HELP("The next search match in forward direction")
-		textobj, { .i = VIS_TEXTOBJECT_SEARCH_FORWARD }
+		ka_textobj, { .i = VIS_TEXTOBJECT_SEARCH_FORWARD }
 	},
 	[VIS_ACTION_TEXT_OBJECT_SEARCH_BACKWARD] = {
 		"vis-textobject-search-backward",
 		VIS_HELP("The next search match in backward direction")
-		textobj, { .i = VIS_TEXTOBJECT_SEARCH_BACKWARD }
+		ka_textobj, { .i = VIS_TEXTOBJECT_SEARCH_BACKWARD }
 	},
 	[VIS_ACTION_UNICODE_INFO] = {
 		"vis-unicode-info",
 		VIS_HELP("Show Unicode codepoint(s) of character under cursor")
-		unicode_info, { .i = VIS_ACTION_UNICODE_INFO  }
+		ka_unicode_info, { .i = VIS_ACTION_UNICODE_INFO  }
 	},
 	[VIS_ACTION_UTF8_INFO] = {
 		"vis-utf8-info",
 		VIS_HELP("Show UTF-8 encoded codepoint(s) of character under cursor")
-		unicode_info, { .i = VIS_ACTION_UTF8_INFO }
+		ka_unicode_info, { .i = VIS_ACTION_UTF8_INFO }
 	},
 	[VIS_ACTION_NOP] = {
 		"vis-nop",
 		VIS_HELP("Ignore key, do nothing")
-		nop,
+		ka_nop,
 	},
 };
 
@@ -1198,11 +1198,11 @@ static const KeyAction vis_action[] = {
 
 /** key bindings functions */
 
-static const char *nop(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_nop(Vis *vis, const char *keys, const Arg *arg) {
 	return keys;
 }
 
-static const char *macro_record(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_macro_record(Vis *vis, const char *keys, const Arg *arg) {
 	if (!vis_macro_record_stop(vis)) {
 		if (!keys[0])
 			return NULL;
@@ -1217,7 +1217,7 @@ static const char *macro_record(Vis *vis, const char *keys, const Arg *arg) {
 	return keys;
 }
 
-static const char *macro_replay(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_macro_replay(Vis *vis, const char *keys, const Arg *arg) {
 	if (!keys[0])
 		return NULL;
 	const char *next = vis_keys_next(vis, keys);
@@ -1228,17 +1228,17 @@ static const char *macro_replay(Vis *vis, const char *keys, const Arg *arg) {
 	return keys+1;
 }
 
-static const char *suspend(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_suspend(Vis *vis, const char *keys, const Arg *arg) {
 	ui_terminal_suspend(&vis->ui);
 	return keys;
 }
 
-static const char *repeat(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_repeat(Vis *vis, const char *keys, const Arg *arg) {
 	vis_repeat(vis);
 	return keys;
 }
 
-static const char *selections_new(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_selections_new(Vis *vis, const char *keys, const Arg *arg) {
 	View *view = vis_view(vis);
 	bool anchored = view_selections_primary_get(view)->anchored;
 	VisCountIterator it = vis_count_iterator_get(vis, 1);
@@ -1284,7 +1284,7 @@ static const char *selections_new(Vis *vis, const char *keys, const Arg *arg) {
 	return keys;
 }
 
-static const char *selections_align(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_selections_align(Vis *vis, const char *keys, const Arg *arg) {
 	View *view = vis_view(vis);
 	Text *txt = vis_text(vis);
 	int mincol = INT_MAX;
@@ -1304,7 +1304,7 @@ static const char *selections_align(Vis *vis, const char *keys, const Arg *arg) 
 	return keys;
 }
 
-static const char *selections_align_indent(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_selections_align_indent(Vis *vis, const char *keys, const Arg *arg) {
 	View *view = vis_view(vis);
 	Text *txt = vis_text(vis);
 	bool left_align = arg->i < 0;
@@ -1347,7 +1347,7 @@ static const char *selections_align_indent(Vis *vis, const char *keys, const Arg
 	return keys;
 }
 
-static const char *selections_clear(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_selections_clear(Vis *vis, const char *keys, const Arg *arg) {
 	View *view = vis_view(vis);
 	if (view->selection_count > 1)
 		view_selections_dispose_all(view);
@@ -1356,7 +1356,7 @@ static const char *selections_clear(Vis *vis, const char *keys, const Arg *arg) 
 	return keys;
 }
 
-static Selection *selection_new(View *view, Filerange *r, bool isprimary) {
+static Selection *ka_selection_new(View *view, Filerange *r, bool isprimary) {
 	Text *txt = view->text;
 	size_t pos = text_char_prev(txt, r->end);
 	Selection *s = view_selections_new(view, pos);
@@ -1369,7 +1369,7 @@ static Selection *selection_new(View *view, Filerange *r, bool isprimary) {
 	return s;
 }
 
-static const char *selections_match_next(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_selections_match_next(Vis *vis, const char *keys, const Arg *arg) {
 	Text *txt = vis_text(vis);
 	View *view = vis_view(vis);
 	Selection *s = view_selections_primary_get(view);
@@ -1402,7 +1402,7 @@ static const char *selections_match_next(Vis *vis, const char *keys, const Arg *
 		sel = find_next(txt, sel.end, buf);
 		if (!text_range_valid(&sel))
 			break;
-		if (selection_new(view, &sel, !match_all) && !match_all)
+		if (ka_selection_new(view, &sel, !match_all) && !match_all)
 			goto out;
 	}
 
@@ -1412,7 +1412,7 @@ static const char *selections_match_next(Vis *vis, const char *keys, const Arg *
 		sel = find_prev(txt, sel.start, buf);
 		if (!text_range_valid(&sel))
 			break;
-		if (selection_new(view, &sel, !match_all) && !match_all)
+		if (ka_selection_new(view, &sel, !match_all) && !match_all)
 			break;
 	}
 
@@ -1421,23 +1421,23 @@ out:
 	return keys;
 }
 
-static const char *selections_match_skip(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_selections_match_skip(Vis *vis, const char *keys, const Arg *arg) {
 	View *view = vis_view(vis);
 	Selection *sel = view_selections_primary_get(view);
-	keys = selections_match_next(vis, keys, arg);
+	keys = ka_selections_match_next(vis, keys, arg);
 	if (sel != view_selections_primary_get(view))
 		view_selections_dispose(sel);
 	return keys;
 }
 
-static const char *selections_remove(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_selections_remove(Vis *vis, const char *keys, const Arg *arg) {
 	View *view = vis_view(vis);
 	view_selections_dispose(view_selections_primary_get(view));
 	view_cursors_to(view->selection, view_cursor_get(view));
 	return keys;
 }
 
-static const char *selections_remove_column(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_selections_remove_column(Vis *vis, const char *keys, const Arg *arg) {
 	View *view = vis_view(vis);
 	int max = view_selections_column_count(view);
 	int column = VIS_COUNT_DEFAULT(vis->action.count, arg->i) - 1;
@@ -1457,7 +1457,7 @@ static const char *selections_remove_column(Vis *vis, const char *keys, const Ar
 	return keys;
 }
 
-static const char *selections_remove_column_except(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_selections_remove_column_except(Vis *vis, const char *keys, const Arg *arg) {
 	View *view = vis_view(vis);
 	int max = view_selections_column_count(view);
 	int column = VIS_COUNT_DEFAULT(vis->action.count, arg->i) - 1;
@@ -1482,10 +1482,10 @@ static const char *selections_remove_column_except(Vis *vis, const char *keys, c
 	return keys;
 }
 
-static const char *selections_navigate(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_selections_navigate(Vis *vis, const char *keys, const Arg *arg) {
 	View *view = vis_view(vis);
 	if (view->selection_count == 1)
-		return wscroll(vis, keys, arg);
+		return ka_wscroll(vis, keys, arg);
 	Selection *s = view_selections_primary_get(view);
 	VisCountIterator it = vis_count_iterator_get(vis, 1);
 	while (vis_count_iterator_next(&it)) {
@@ -1507,7 +1507,7 @@ static const char *selections_navigate(Vis *vis, const char *keys, const Arg *ar
 	return keys;
 }
 
-static const char *selections_rotate(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_selections_rotate(Vis *vis, const char *keys, const Arg *arg) {
 
 	typedef struct {
 		Selection *sel;
@@ -1574,7 +1574,7 @@ static const char *selections_rotate(Vis *vis, const char *keys, const Arg *arg)
 	return keys;
 }
 
-static const char *selections_trim(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_selections_trim(Vis *vis, const char *keys, const Arg *arg) {
 	Text *txt = vis_text(vis);
 	View *view = vis_view(vis);
 	for (Selection *s = view_selections(view), *next; s; s = next) {
@@ -1603,7 +1603,7 @@ static void selections_set(Vis *vis, View *view, Array *sel) {
 		view_selections_clear_all(view);
 }
 
-static const char *selections_save(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_selections_save(Vis *vis, const char *keys, const Arg *arg) {
 	Win *win = vis->win;
 	View *view = vis_view(vis);
 	enum VisMark mark = vis_mark_used(vis);
@@ -1614,7 +1614,7 @@ static const char *selections_save(Vis *vis, const char *keys, const Arg *arg) {
 	return keys;
 }
 
-static const char *selections_restore(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_selections_restore(Vis *vis, const char *keys, const Arg *arg) {
 	Win *win = vis->win;
 	View *view = vis_view(vis);
 	enum VisMark mark = vis_mark_used(vis);
@@ -1625,7 +1625,7 @@ static const char *selections_restore(Vis *vis, const char *keys, const Arg *arg
 	return keys;
 }
 
-static const char *selections_union(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_selections_union(Vis *vis, const char *keys, const Arg *arg) {
 	Win *win = vis->win;
 	View *view = vis_view(vis);
 	enum VisMark mark = vis_mark_used(vis);
@@ -1692,7 +1692,7 @@ static void intersect(Array *ret, Array *a, Array *b) {
 	}
 }
 
-static const char *selections_intersect(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_selections_intersect(Vis *vis, const char *keys, const Arg *arg) {
 	Win *win = vis->win;
 	View *view = vis_view(vis);
 	enum VisMark mark = vis_mark_used(vis);
@@ -1728,7 +1728,7 @@ static void complement(Array *ret, Array *a, Filerange *universe) {
 	}
 }
 
-static const char *selections_complement(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_selections_complement(Vis *vis, const char *keys, const Arg *arg) {
 	Text *txt = vis_text(vis);
 	View *view = vis_view(vis);
 	Filerange universe = text_object_entire(txt, 0);
@@ -1744,7 +1744,7 @@ static const char *selections_complement(Vis *vis, const char *keys, const Arg *
 	return keys;
 }
 
-static const char *selections_minus(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_selections_minus(Vis *vis, const char *keys, const Arg *arg) {
 	Text *txt = vis_text(vis);
 	Win *win = vis->win;
 	View *view = vis_view(vis);
@@ -1771,7 +1771,7 @@ static const char *selections_minus(Vis *vis, const char *keys, const Arg *arg) 
 	return keys;
 }
 
-static const char *replace(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_replace(Vis *vis, const char *keys, const Arg *arg) {
 	if (!keys[0]) {
 		vis_keymap_disable(vis);
 		return NULL;
@@ -1794,7 +1794,7 @@ static const char *replace(Vis *vis, const char *keys, const Arg *arg) {
 	return next;
 }
 
-static const char *count(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_count(Vis *vis, const char *keys, const Arg *arg) {
 	int digit = keys[-1] - '0';
 	int count = VIS_COUNT_DEFAULT(vis->action.count, 0);
 	if (0 <= digit && digit <= 9) {
@@ -1806,7 +1806,7 @@ static const char *count(Vis *vis, const char *keys, const Arg *arg) {
 	return keys;
 }
 
-static const char *gotoline(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_gotoline(Vis *vis, const char *keys, const Arg *arg) {
 	if (vis->action.count != VIS_COUNT_UNKNOWN)
 		vis_motion(vis, VIS_MOVE_LINE);
 	else if (arg->i < 0)
@@ -1816,12 +1816,12 @@ static const char *gotoline(Vis *vis, const char *keys, const Arg *arg) {
 	return keys;
 }
 
-static const char *operator(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_operator(Vis *vis, const char *keys, const Arg *arg) {
 	vis_operator(vis, arg->i);
 	return keys;
 }
 
-static const char *movement_key(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_movement_key(Vis *vis, const char *keys, const Arg *arg) {
 	if (!keys[0]) {
 		vis_keymap_disable(vis);
 		return NULL;
@@ -1836,23 +1836,23 @@ static const char *movement_key(Vis *vis, const char *keys, const Arg *arg) {
 	return next;
 }
 
-static const char *movement(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_movement(Vis *vis, const char *keys, const Arg *arg) {
 	vis_motion(vis, arg->i);
 	return keys;
 }
 
-static const char *textobj(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_textobj(Vis *vis, const char *keys, const Arg *arg) {
 	vis_textobject(vis, arg->i);
 	return keys;
 }
 
-static const char *selection_end(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_selection_end(Vis *vis, const char *keys, const Arg *arg) {
 	for (Selection *s = view_selections(vis_view(vis)); s; s = view_selections_next(s))
 		view_selections_flip(s);
 	return keys;
 }
 
-static const char *reg(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_reg(Vis *vis, const char *keys, const Arg *arg) {
 	if (!keys[0])
 		return NULL;
 	const char *next = vis_keys_next(vis, keys);
@@ -1863,7 +1863,7 @@ static const char *reg(Vis *vis, const char *keys, const Arg *arg) {
 	return keys+1;
 }
 
-static const char *mark(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_mark(Vis *vis, const char *keys, const Arg *arg) {
 	if (!keys[0])
 		return NULL;
 	const char *next = vis_keys_next(vis, keys);
@@ -1874,7 +1874,7 @@ static const char *mark(Vis *vis, const char *keys, const Arg *arg) {
 	return keys+1;
 }
 
-static const char *undo(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_undo(Vis *vis, const char *keys, const Arg *arg) {
 	size_t pos = text_undo(vis_text(vis));
 	if (pos != EPOS) {
 		View *view = vis_view(vis);
@@ -1886,7 +1886,7 @@ static const char *undo(Vis *vis, const char *keys, const Arg *arg) {
 	return keys;
 }
 
-static const char *redo(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_redo(Vis *vis, const char *keys, const Arg *arg) {
 	size_t pos = text_redo(vis_text(vis));
 	if (pos != EPOS) {
 		View *view = vis_view(vis);
@@ -1898,7 +1898,7 @@ static const char *redo(Vis *vis, const char *keys, const Arg *arg) {
 	return keys;
 }
 
-static const char *earlier(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_earlier(Vis *vis, const char *keys, const Arg *arg) {
 	size_t pos = EPOS;
 	VisCountIterator it = vis_count_iterator_get(vis, 1);
 	while (vis_count_iterator_next(&it))
@@ -1911,7 +1911,7 @@ static const char *earlier(Vis *vis, const char *keys, const Arg *arg) {
 	return keys;
 }
 
-static const char *later(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_later(Vis *vis, const char *keys, const Arg *arg) {
 	size_t pos = EPOS;
 	VisCountIterator it = vis_count_iterator_get(vis, 1);
 	while (vis_count_iterator_next(&it))
@@ -1924,13 +1924,13 @@ static const char *later(Vis *vis, const char *keys, const Arg *arg) {
 	return keys;
 }
 
-static const char *delete(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_delete(Vis *vis, const char *keys, const Arg *arg) {
 	vis_operator(vis, VIS_OP_DELETE);
 	vis_motion(vis, arg->i);
 	return keys;
 }
 
-static const char *insert_register(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_insert_register(Vis *vis, const char *keys, const Arg *arg) {
 	if (!keys[0])
 		return NULL;
 	const char *next = vis_keys_next(vis, keys);
@@ -1944,12 +1944,12 @@ static const char *insert_register(Vis *vis, const char *keys, const Arg *arg) {
 	return keys+1;
 }
 
-static const char *prompt_show(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_prompt_show(Vis *vis, const char *keys, const Arg *arg) {
 	vis_prompt_show(vis, arg->s);
 	return keys;
 }
 
-static const char *insert_verbatim(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_insert_verbatim(Vis *vis, const char *keys, const Arg *arg) {
 	Rune rune = 0;
 	char buf[4], type = keys[0];
 	const char *data = NULL;
@@ -2031,7 +2031,7 @@ static const char *insert_verbatim(Vis *vis, const char *keys, const Arg *arg) {
 	return keys;
 }
 
-static const char *wscroll(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_wscroll(Vis *vis, const char *keys, const Arg *arg) {
 	View *view = vis_view(vis);
 	int count = vis->action.count;
 	switch (arg->i) {
@@ -2060,7 +2060,7 @@ static const char *wscroll(Vis *vis, const char *keys, const Arg *arg) {
 	return keys;
 }
 
-static const char *wslide(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_wslide(Vis *vis, const char *keys, const Arg *arg) {
 	View *view = vis_view(vis);
 	int count = vis->action.count;
 	if (count == VIS_COUNT_UNKNOWN)
@@ -2073,17 +2073,17 @@ static const char *wslide(Vis *vis, const char *keys, const Arg *arg) {
 	return keys;
 }
 
-static const char *call(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_call(Vis *vis, const char *keys, const Arg *arg) {
 	arg->f(vis);
 	return keys;
 }
 
-static const char *window(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_window(Vis *vis, const char *keys, const Arg *arg) {
 	arg->w(vis_view(vis));
 	return keys;
 }
 
-static const char *openline(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_openline(Vis *vis, const char *keys, const Arg *arg) {
 	vis_operator(vis, VIS_OP_MODESWITCH, VIS_MODE_INSERT);
 	if (arg->i > 0) {
 		vis_motion(vis, VIS_MOVE_LINE_END);
@@ -2101,7 +2101,7 @@ static const char *openline(Vis *vis, const char *keys, const Arg *arg) {
 	return keys;
 }
 
-static const char *join(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_join(Vis *vis, const char *keys, const Arg *arg) {
 	bool normal = (vis->mode->id == VIS_MODE_NORMAL);
 	vis_operator(vis, VIS_OP_JOIN, arg->s);
 	if (normal) {
@@ -2113,15 +2113,15 @@ static const char *join(Vis *vis, const char *keys, const Arg *arg) {
 	return keys;
 }
 
-static const char *normalmode_escape(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_normalmode_escape(Vis *vis, const char *keys, const Arg *arg) {
 	if (vis->action.count == VIS_COUNT_UNKNOWN)
-		selections_clear(vis, keys, arg);
+		ka_selections_clear(vis, keys, arg);
 	else
 		vis->action.count = VIS_COUNT_UNKNOWN;
 	return keys;
 }
 
-static const char *visualmode_escape(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_visualmode_escape(Vis *vis, const char *keys, const Arg *arg) {
 	if (vis->action.count == VIS_COUNT_UNKNOWN)
 		vis_mode_switch(vis, VIS_MODE_NORMAL);
 	else
@@ -2129,24 +2129,24 @@ static const char *visualmode_escape(Vis *vis, const char *keys, const Arg *arg)
 	return keys;
 }
 
-static const char *switchmode(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_switchmode(Vis *vis, const char *keys, const Arg *arg) {
 	vis_mode_switch(vis, arg->i);
 	return keys;
 }
 
-static const char *insertmode(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_insertmode(Vis *vis, const char *keys, const Arg *arg) {
 	vis_operator(vis, VIS_OP_MODESWITCH, VIS_MODE_INSERT);
 	vis_motion(vis, arg->i);
 	return keys;
 }
 
-static const char *replacemode(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_replacemode(Vis *vis, const char *keys, const Arg *arg) {
 	vis_operator(vis, VIS_OP_MODESWITCH, VIS_MODE_REPLACE);
 	vis_motion(vis, arg->i);
 	return keys;
 }
 
-static const char *unicode_info(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_unicode_info(Vis *vis, const char *keys, const Arg *arg) {
 	View *view = vis_view(vis);
 	Text *txt = vis_text(vis);
 	size_t start = view_cursor_get(view);
@@ -2188,7 +2188,7 @@ err:
 	return keys;
 }
 
-static const char *percent(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_percent(Vis *vis, const char *keys, const Arg *arg) {
 	if (vis->action.count == VIS_COUNT_UNKNOWN)
 		vis_motion(vis, VIS_MOVE_BRACKET_MATCH);
 	else
@@ -2196,7 +2196,7 @@ static const char *percent(Vis *vis, const char *keys, const Arg *arg) {
 	return keys;
 }
 
-static const char *jumplist(Vis *vis, const char *keys, const Arg *arg) {
+static const char *ka_jumplist(Vis *vis, const char *keys, const Arg *arg) {
 	if (arg->i < 0)
 		vis_jumplist_prev(vis);
 	else if (arg->i > 0)

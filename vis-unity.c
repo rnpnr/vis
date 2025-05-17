@@ -1,0 +1,35 @@
+#include "termkey-vis.c"
+/* wtf curses */
+#undef color_names
+#undef columns
+#undef cursor_visible
+#undef lines
+#undef tab
+
+#include "array.c"
+#include "buffer.c"
+#include "event-basic.c"
+#include "libutf.c"
+#include "main.c"
+#include "map.c"
+#include "sam.c"
+#include "text-common.c"
+#include "text-io.c"
+#include "text-iterator.c"
+#include "text-motions.c"
+#include "text-objects.c"
+#include "text-regex.c"
+#include "text-util.c"
+#include "text.c"
+#include "ui-terminal.c"
+#include "view.c"
+#include "vis-lua.c"
+#include "vis-marks.c"
+#include "vis-modes.c"
+#include "vis-motions.c"
+#include "vis-operators.c"
+#include "vis-prompt.c"
+#include "vis-registers.c"
+#include "vis-subprocess.c"
+#include "vis-text-objects.c"
+#include "vis.c"
