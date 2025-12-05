@@ -9,6 +9,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+#include "util.h"
+
 /** A mark. */
 typedef uintptr_t Mark;
 
@@ -363,7 +365,7 @@ typedef struct {
 /**
  * Marks the current text revision as saved.
  */
-void text_mark_current_revision(Text*);
+VIS_INTERNAL void text_mark_current_revision(Text*);
 
 /**
  * Setup a sequence of write operations.
@@ -376,12 +378,12 @@ void text_mark_current_revision(Text*);
  *              ``text_save_cancel`` to release the underlying resources.
  * @endrst
  */
-bool text_save_begin(TextSave*);
+VIS_INTERNAL bool text_save_begin(TextSave*);
 /**
  * Write file range.
  * @return The number of bytes written or ``-1`` in case of an error.
  */
-ssize_t text_save_write_range(TextSave*, const Filerange*);
+VIS_INTERNAL ssize_t text_save_write_range(TextSave*, const Filerange*);
 /**
  * Commit changes to disk.
  * @return Whether changes have been saved.
@@ -390,7 +392,7 @@ ssize_t text_save_write_range(TextSave*, const Filerange*);
  *           pointer which must no longer be used.
  * @endrst
  */
-bool text_save_commit(TextSave*);
+VIS_INTERNAL bool text_save_commit(TextSave*);
 /**
  * Abort a save operation.
  * @rst
@@ -399,12 +401,12 @@ bool text_save_commit(TextSave*);
  *           frees the given ``TextSave`` pointer which must no longer be used.
  * @endrst
  */
-void text_save_cancel(TextSave*);
+VIS_INTERNAL void text_save_cancel(TextSave*);
 /**
  * Write file range to file descriptor.
  * @return The number of bytes written or ``-1`` in case of an error.
  */
-ssize_t text_write_range(const Text*, const Filerange*, int fd);
+VIS_INTERNAL ssize_t text_write_range(const Text*, const Filerange*, int fd);
 /**
  * @}
  * @defgroup misc Miscellaneous
@@ -414,13 +416,13 @@ ssize_t text_write_range(const Text*, const Filerange*, int fd);
  * Check whether ``ptr`` is part of a memory mapped region associated with
  * this text instance.
  */
-bool text_mmaped(const Text*, const char *ptr);
+VIS_INTERNAL bool text_mmaped(const Text*, const char *ptr);
 
 /**
  * Write complete buffer to file descriptor.
  * @return The number of bytes written or ``-1`` in case of an error.
  */
-ssize_t write_all(int fd, const char *buf, size_t count);
+VIS_INTERNAL ssize_t write_all(int fd, const char *buf, size_t count);
 /** @} */
 
 #endif
