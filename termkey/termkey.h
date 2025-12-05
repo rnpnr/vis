@@ -15,9 +15,6 @@ extern "C" {
 #define TERMKEY_VERSION_MAJOR 0
 #define TERMKEY_VERSION_MINOR 22
 
-#define TERMKEY_CHECK_VERSION \
-        termkey_check_version(TERMKEY_VERSION_MAJOR, TERMKEY_VERSION_MINOR)
-
 typedef enum {
   TERMKEY_SYM_UNKNOWN = -1,
   TERMKEY_SYM_NONE = 0,
@@ -166,62 +163,39 @@ enum {
   TERMKEY_CANON_DELBS       = 1 << 1  /* Del is converted to Backspace */
 };
 
-void termkey_check_version(int major, int minor);
-
-TermKey *termkey_new(int fd, int flags);
-TermKey *termkey_new_abstract(const char *term, int flags);
-void     termkey_free(TermKey *tk);
-void     termkey_destroy(TermKey *tk);
+VIS_INTERNAL TermKey *termkey_new(int fd, int flags);
+VIS_INTERNAL TermKey *termkey_new_abstract(const char *term, int flags);
+VIS_INTERNAL void     termkey_free(TermKey *tk);
+VIS_INTERNAL void     termkey_destroy(TermKey *tk);
 
 /* Mostly-undocumented hooks for doing evil evil things */
 typedef const char *TermKey_Terminfo_Getstr_Hook(const char *name, const char *value, void *data);
-void termkey_hook_terminfo_getstr(TermKey *tk, TermKey_Terminfo_Getstr_Hook *hookfn, void *data);
 
-int termkey_start(TermKey *tk);
-int termkey_stop(TermKey *tk);
-int termkey_is_started(TermKey *tk);
+VIS_INTERNAL int termkey_start(TermKey *tk);
+VIS_INTERNAL int termkey_stop(TermKey *tk);
 
-int termkey_get_fd(TermKey *tk);
+VIS_INTERNAL void termkey_set_flags(TermKey *tk, int newflags);
 
-int  termkey_get_flags(TermKey *tk);
-void termkey_set_flags(TermKey *tk, int newflags);
+VIS_INTERNAL int  termkey_get_waittime(TermKey *tk);
+VIS_INTERNAL void termkey_set_waittime(TermKey *tk, int msec);
 
-int  termkey_get_waittime(TermKey *tk);
-void termkey_set_waittime(TermKey *tk, int msec);
+VIS_INTERNAL void termkey_set_canonflags(TermKey *tk, int);
 
-int  termkey_get_canonflags(TermKey *tk);
-void termkey_set_canonflags(TermKey *tk, int);
+VIS_INTERNAL void termkey_canonicalise(TermKey *tk, TermKeyKey *key);
 
-size_t termkey_get_buffer_size(TermKey *tk);
-int    termkey_set_buffer_size(TermKey *tk, size_t size);
+VIS_INTERNAL TermKeyResult termkey_getkey(TermKey *tk, TermKeyKey *key);
+VIS_INTERNAL TermKeyResult termkey_getkey_force(TermKey *tk, TermKeyKey *key);
 
-size_t termkey_get_buffer_remaining(TermKey *tk);
+VIS_INTERNAL TermKeyResult termkey_advisereadable(TermKey *tk);
 
-void termkey_canonicalise(TermKey *tk, TermKeyKey *key);
+VIS_INTERNAL TermKeySym termkey_register_keyname(TermKey *tk, TermKeySym sym, const char *name);
+VIS_INTERNAL const char *termkey_get_keyname(TermKey *tk, TermKeySym sym);
 
-TermKeyResult termkey_getkey(TermKey *tk, TermKeyKey *key);
-TermKeyResult termkey_getkey_force(TermKey *tk, TermKeyKey *key);
-TermKeyResult termkey_waitkey(TermKey *tk, TermKeyKey *key);
+VIS_INTERNAL TermKeyResult termkey_interpret_mouse(TermKey *tk, const TermKeyKey *key, TermKeyMouseEvent *event, int *button, int *line, int *col);
 
-TermKeyResult termkey_advisereadable(TermKey *tk);
+VIS_INTERNAL TermKeyResult termkey_interpret_modereport(TermKey *tk, const TermKeyKey *key, int *initial, int *mode, int *value);
 
-size_t termkey_push_bytes(TermKey *tk, const char *bytes, size_t len);
-
-TermKeySym termkey_register_keyname(TermKey *tk, TermKeySym sym, const char *name);
-const char *termkey_get_keyname(TermKey *tk, TermKeySym sym);
-const char *termkey_lookup_keyname(TermKey *tk, const char *str, TermKeySym *sym);
-
-TermKeySym termkey_keyname2sym(TermKey *tk, const char *keyname);
-
-TermKeyResult termkey_interpret_mouse(TermKey *tk, const TermKeyKey *key, TermKeyMouseEvent *event, int *button, int *line, int *col);
-
-TermKeyResult termkey_interpret_position(TermKey *tk, const TermKeyKey *key, int *line, int *col);
-
-TermKeyResult termkey_interpret_modereport(TermKey *tk, const TermKeyKey *key, int *initial, int *mode, int *value);
-
-TermKeyResult termkey_interpret_csi(TermKey *tk, const TermKeyKey *key, long args[], size_t *nargs, unsigned long *cmd);
-
-TermKeyResult termkey_interpret_string(TermKey *tk, const TermKeyKey *key, const char **strp);
+VIS_INTERNAL TermKeyResult termkey_interpret_csi(TermKey *tk, const TermKeyKey *key, long args[], size_t *nargs, unsigned long *cmd);
 
 typedef enum {
   TERMKEY_FORMAT_LONGMOD     = 1 << 0, /* Shift-... instead of S-... */
@@ -241,10 +215,8 @@ typedef enum {
 #define TERMKEY_FORMAT_URWID (TermKeyFormat)(TERMKEY_FORMAT_LONGMOD|TERMKEY_FORMAT_ALTISMETA| \
           TERMKEY_FORMAT_LOWERMOD|TERMKEY_FORMAT_SPACEMOD|TERMKEY_FORMAT_LOWERSPACE)
 
-size_t      termkey_strfkey(TermKey *tk, char *buffer, size_t len, TermKeyKey *key, TermKeyFormat format);
-const char *termkey_strpkey(TermKey *tk, const char *str, TermKeyKey *key, TermKeyFormat format);
-
-int termkey_keycmp(TermKey *tk, const TermKeyKey *key1, const TermKeyKey *key2);
+VIS_INTERNAL size_t      termkey_strfkey(TermKey *tk, char *buffer, size_t len, TermKeyKey *key, TermKeyFormat format);
+VIS_INTERNAL const char *termkey_strpkey(TermKey *tk, const char *str, TermKeyKey *key, TermKeyFormat format);
 
 #endif
 
