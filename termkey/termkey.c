@@ -18,23 +18,6 @@
 # define strcaseeq(a,b) (strcasecmp(a,b) == 0)
 #endif
 
-void termkey_check_version(int major, int minor)
-{
-  if(major != TERMKEY_VERSION_MAJOR) {
-    fprintf(stderr, "libtermkey major version mismatch; %d (wants) != %d (library)\n",
-        major, TERMKEY_VERSION_MAJOR);
-    exit(1);
-  }
-
-  if(minor > TERMKEY_VERSION_MINOR) {
-    fprintf(stderr, "libtermkey minor version mismatch; %d (wants) > %d (library)\n",
-        minor, TERMKEY_VERSION_MINOR);
-    exit(1);
-  }
-
-  // Happy
-}
-
 static struct TermKeyDriver *drivers[] = {
   &termkey_driver_ti,
   &termkey_driver_csi,
@@ -124,6 +107,16 @@ static const char *evnames[] = { "Unknown", "Press", "Drag", "Release" };
 
 #ifdef DEBUG
 /* Some internal debugging functions */
+
+static TermKeyResult termkey_interpret_position(TermKey *tk, const TermKeyKey *key, int *line, int *col)
+{
+  if(key->type != TERMKEY_TYPE_POSITION)
+    return TERMKEY_RES_NONE;
+
+  termkey_key_get_linecol(key, line, col);
+
+  return TERMKEY_RES_KEY;
+}
 
 static void print_buffer(TermKey *tk)
 {
@@ -483,12 +476,6 @@ void termkey_destroy(TermKey *tk)
   termkey_free(tk);
 }
 
-void termkey_hook_terminfo_getstr(TermKey *tk, TermKey_Terminfo_Getstr_Hook *hookfn, void *data)
-{
-  tk->ti_getstr_hook = hookfn;
-  tk->ti_getstr_hook_data = data;
-}
-
 int termkey_start(TermKey *tk)
 {
   if(tk->is_started)
@@ -565,21 +552,6 @@ int termkey_stop(TermKey *tk)
   return 1;
 }
 
-int termkey_is_started(TermKey *tk)
-{
-  return tk->is_started;
-}
-
-int termkey_get_fd(TermKey *tk)
-{
-  return tk->fd;
-}
-
-int termkey_get_flags(TermKey *tk)
-{
-  return tk->flags;
-}
-
 void termkey_set_flags(TermKey *tk, int newflags)
 {
   tk->flags = newflags;
@@ -600,11 +572,6 @@ int termkey_get_waittime(TermKey *tk)
   return tk->waittime;
 }
 
-int termkey_get_canonflags(TermKey *tk)
-{
-  return tk->canonflags;
-}
-
 void termkey_set_canonflags(TermKey *tk, int flags)
 {
   tk->canonflags = flags;
@@ -613,30 +580,6 @@ void termkey_set_canonflags(TermKey *tk, int flags)
     tk->flags |= TERMKEY_FLAG_SPACESYMBOL;
   else
     tk->flags &= ~TERMKEY_FLAG_SPACESYMBOL;
-}
-
-size_t termkey_get_buffer_size(TermKey *tk)
-{
-  return tk->buffsize;
-}
-
-int termkey_set_buffer_size(TermKey *tk, size_t size)
-{
-  unsigned char *buffer = realloc(tk->buffer, size);
-  if(!buffer)
-    return 0;
-
-  tk->buffer = buffer;
-  tk->buffsize = size;
-
-  return 1;
-}
-
-size_t termkey_get_buffer_remaining(TermKey *tk)
-{
-  /* Return the total number of free bytes in the buffer, because that's what
-   * is available to the user. */
-  return tk->buffsize - tk->buffcount;
 }
 
 static void eat_bytes(TermKey *tk, size_t count)
@@ -1061,68 +1004,6 @@ TermKeyResult termkey_getkey_force(TermKey *tk, TermKeyKey *key)
   return ret;
 }
 
-#ifndef _WIN32
-TermKeyResult termkey_waitkey(TermKey *tk, TermKeyKey *key)
-{
-  if(tk->fd == -1) {
-    errno = EBADF;
-    return TERMKEY_RES_ERROR;
-  }
-
-  while(1) {
-    TermKeyResult ret = termkey_getkey(tk, key);
-
-    switch(ret) {
-      case TERMKEY_RES_KEY:
-      case TERMKEY_RES_EOF:
-      case TERMKEY_RES_ERROR:
-        return ret;
-
-      case TERMKEY_RES_NONE:
-        ret = termkey_advisereadable(tk);
-        if(ret == TERMKEY_RES_ERROR)
-          return ret;
-        break;
-
-      case TERMKEY_RES_AGAIN:
-        {
-          if(tk->is_closed)
-            // We're closed now. Never going to get more bytes so just go with
-            // what we have
-            return termkey_getkey_force(tk, key);
-
-          struct pollfd fd;
-
-retry:
-          fd.fd = tk->fd;
-          fd.events = POLLIN;
-
-          int pollret = poll(&fd, 1, tk->waittime);
-          if(pollret == -1) {
-            if(errno == EINTR && !(tk->flags & TERMKEY_FLAG_EINTR))
-              goto retry;
-
-            return TERMKEY_RES_ERROR;
-          }
-
-          if(fd.revents & (POLLIN|POLLHUP|POLLERR))
-            ret = termkey_advisereadable(tk);
-          else
-            ret = TERMKEY_RES_NONE;
-
-          if(ret == TERMKEY_RES_ERROR)
-            return ret;
-          if(ret == TERMKEY_RES_NONE)
-            return termkey_getkey_force(tk, key);
-        }
-        break;
-    }
-  }
-
-  /* UNREACHABLE */
-}
-#endif
-
 TermKeyResult termkey_advisereadable(TermKey *tk)
 {
   ssize_t len;
@@ -1162,29 +1043,6 @@ retry:
     tk->buffcount += len;
     return TERMKEY_RES_AGAIN;
   }
-}
-
-size_t termkey_push_bytes(TermKey *tk, const char *bytes, size_t len)
-{
-  if(tk->buffstart) {
-    memmove(tk->buffer, tk->buffer + tk->buffstart, tk->buffcount);
-    tk->buffstart = 0;
-  }
-
-  /* Not expecting it ever to be greater but doesn't hurt to handle that */
-  if(tk->buffcount >= tk->buffsize) {
-    errno = ENOMEM;
-    return (size_t)-1;
-  }
-
-  if(len > tk->buffsize - tk->buffcount)
-    len = tk->buffsize - tk->buffcount;
-
-  // memcpy(), not strncpy() in case of null bytes in input
-  memcpy(tk->buffer + tk->buffcount, bytes, len);
-  tk->buffcount += len;
-
-  return len;
 }
 
 TermKeySym termkey_register_keyname(TermKey *tk, TermKeySym sym, const char *name)
@@ -1246,20 +1104,6 @@ static const char *termkey_lookup_keyname_format(TermKey *tk, const char *str, T
   return NULL;
 }
 
-const char *termkey_lookup_keyname(TermKey *tk, const char *str, TermKeySym *sym)
-{
-  return termkey_lookup_keyname_format(tk, str, sym, 0);
-}
-
-TermKeySym termkey_keyname2sym(TermKey *tk, const char *keyname)
-{
-  TermKeySym sym;
-  const char *endp = termkey_lookup_keyname(tk, keyname, &sym);
-  if(!endp || endp[0])
-    return TERMKEY_SYM_UNKNOWN;
-  return sym;
-}
-
 static TermKeySym register_c0(TermKey *tk, TermKeySym sym, unsigned char ctrl, const char *name)
 {
   return register_c0_full(tk, sym, 0, 0, ctrl, name);
@@ -1280,15 +1124,6 @@ static TermKeySym register_c0_full(TermKey *tk, TermKeySym sym, int modifier_set
   tk->c0[ctrl].modifier_mask = modifier_mask;
 
   return sym;
-}
-
-/* Previous name for this function
- * No longer declared in termkey.h but it remains in the compiled library for
- * backward-compatibility reasons.
- */
-size_t termkey_snprint_key(TermKey *tk, char *buffer, size_t len, TermKeyKey *key, TermKeyFormat format)
-{
-  return termkey_strfkey(tk, buffer, len, key, format);
 }
 
 static struct modnames {
@@ -1540,65 +1375,4 @@ const char *termkey_strpkey(TermKey *tk, const char *str, TermKeyKey *key, TermK
   termkey_canonicalise(tk, key);
 
   return (char *)str;
-}
-
-int termkey_keycmp(TermKey *tk, const TermKeyKey *key1p, const TermKeyKey *key2p)
-{
-  /* Copy the key structs since we'll be modifying them */
-  TermKeyKey key1 = *key1p, key2 = *key2p;
-
-  termkey_canonicalise(tk, &key1);
-  termkey_canonicalise(tk, &key2);
-
-  if(key1.type != key2.type)
-    return key1.type - key2.type;
-
-  switch(key1.type) {
-    case TERMKEY_TYPE_UNICODE:
-      if(key1.code.codepoint != key2.code.codepoint)
-        return key1.code.codepoint - key2.code.codepoint;
-      break;
-    case TERMKEY_TYPE_KEYSYM:
-      if(key1.code.sym != key2.code.sym)
-        return key1.code.sym - key2.code.sym;
-      break;
-    case TERMKEY_TYPE_FUNCTION:
-    case TERMKEY_TYPE_UNKNOWN_CSI:
-      if(key1.code.number != key2.code.number)
-        return key1.code.number - key2.code.number;
-      break;
-    case TERMKEY_TYPE_MOUSE:
-      {
-        int cmp = strncmp(key1.code.mouse, key2.code.mouse, 4);
-        if(cmp != 0)
-          return cmp;
-      }
-      break;
-    case TERMKEY_TYPE_POSITION:
-      {
-        int line1, col1, line2, col2;
-        termkey_interpret_position(tk, &key1, &line1, &col1);
-        termkey_interpret_position(tk, &key2, &line2, &col2);
-        if(line1 != line2)
-          return line1 - line2;
-        return col1 - col2;
-      }
-      break;
-    case TERMKEY_TYPE_DCS:
-    case TERMKEY_TYPE_OSC:
-      return key1p - key2p;
-    case TERMKEY_TYPE_MODEREPORT:
-      {
-        int initial1, initial2, mode1, mode2, value1, value2;
-        termkey_interpret_modereport(tk, &key1, &initial1, &mode1, &value1);
-        termkey_interpret_modereport(tk, &key2, &initial2, &mode2, &value2);
-        if(initial1 != initial2)
-          return initial1 - initial2;
-        if(mode1 != mode2)
-          return mode1 - mode2;
-        return value1 - value2;
-      }
-  }
-
-  return key1.modifiers - key2.modifiers;
 }
