@@ -279,16 +279,6 @@ static TermKeyResult handle_csi_R(TermKey *tk, TermKeyKey *key, int cmd, long *a
   }
 }
 
-TermKeyResult termkey_interpret_position(TermKey *tk, const TermKeyKey *key, int *line, int *col)
-{
-  if(key->type != TERMKEY_TYPE_POSITION)
-    return TERMKEY_RES_NONE;
-
-  termkey_key_get_linecol(key, line, col);
-
-  return TERMKEY_RES_KEY;
-}
-
 /*
  * Handler for CSI $y mode status reports
  */
@@ -742,27 +732,3 @@ struct TermKeyDriver termkey_driver_csi = {
 
   .peekkey = csi_peekkey,
 };
-
-TermKeyResult termkey_interpret_string(TermKey *tk, const TermKeyKey *key, const char **strp)
-{
-  struct TermKeyDriverNode *p;
-  for(p = tk->drivers; p; p = p->next)
-    if(p->driver == &termkey_driver_csi)
-      break;
-
-  if(!p)
-    return TERMKEY_RES_NONE;
-
-  if(key->type != TERMKEY_TYPE_DCS &&
-     key->type != TERMKEY_TYPE_OSC)
-    return TERMKEY_RES_NONE;
-
-  TermKeyCsi *csi = p->info;
-
-  if(csi->saved_string_id != key->code.number)
-    return TERMKEY_RES_NONE;
-
-  *strp = csi->saved_string;
-
-  return TERMKEY_RES_KEY;
-}
