@@ -1,6 +1,3 @@
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE /* memrchr(3) is non-standard */
-#endif
 #include <limits.h>
 #include <stddef.h>
 #include <errno.h>
@@ -72,9 +69,20 @@ bool text_iterator_byte_prev(Iterator *it, char *b) {
 	return true;
 }
 
+static const void *scan_memory_reverse(const void *memory, int byte, ptrdiff_t n)
+{
+	const void *result = 0;
+	if (n > 0) {
+		const signed char *s = memory, *e = s + n - 1;
+		while (s != e && *e != byte) e--;
+		if (*e == byte) result = e;
+	}
+	return result;
+}
+
 bool text_iterator_byte_find_prev(Iterator *it, char b) {
 	while (it->text) {
-		const char *match = memrchr(it->start, b, it->text - it->start);
+		const char *match = scan_memory_reverse(it->start, b, it->text - it->start);
 		if (match) {
 			it->pos -= it->text - match;
 			it->text = match;
