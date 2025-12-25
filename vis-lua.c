@@ -893,7 +893,7 @@ static size_t motion_lua(Vis *vis, Win *win, void *data, size_t pos) {
  *
  * @function motion_register
  * @tparam function motion the Lua function implementing the motion
- * @treturn int the associated motion id, or `-1` on failure
+ * @treturn int the associated motion id
  * @see motion, motion_new
  * @local
  * @usage
@@ -947,7 +947,7 @@ static size_t operator_lua(Vis *vis, Text *text, OperatorContext *c) {
  *
  * @function operator_register
  * @tparam function operator the Lua function implementing the operator
- * @treturn int the associated operator id, or `-1` on failure
+ * @treturn int the associated operator id
  * @see operator, operator_new
  * @local
  * @usage
@@ -1721,14 +1721,14 @@ static int registers_index(lua_State *L) {
 	enum VisRegister reg = vis_register_from(vis, symbol[0]);
 	if (reg >= VIS_REG_INVALID)
 		return 1;
-	Array data = vis_register_get(vis, reg);
-	for (size_t i = 0, len = data.len; i < len; i++) {
-		TextString *string = array_get(&data, i);
+	TextStringList strings = vis_register_get(vis, reg);
+	for (VisDACount i = 0; i < strings.count; i++) {
+		TextString string = strings.data[i];
 		lua_pushunsigned(L, i+1);
-		lua_pushlstring(L, string->data, string->len);
+		lua_pushlstring(L, string.data, string.len);
 		lua_settable(L, -3);
 	}
-	array_release(&data);
+	da_release(&strings);
 	return 1;
 }
 
@@ -1738,21 +1738,20 @@ static int registers_newindex(lua_State *L) {
 	if (strlen(symbol) != 1)
 		return 0;
 	enum VisRegister reg = vis_register_from(vis, symbol[0]);
-	Array data;
-	array_init_sized(&data, sizeof(TextString));
 
+	TextStringList strings = {0};
 	if (lua_istable(L, 3)) {
 		lua_pushnil(L);
 		while (lua_next(L, 3)) {
 			TextString string;
 			string.data = luaL_checklstring(L, -1, &string.len);
-			array_add(&data, &string);
+			*da_push(vis, &strings) = string;
 			lua_pop(L, 1);
 		}
 	}
 
-	vis_register_set(vis, reg, &data);
-	array_release(&data);
+	vis_register_set(vis, reg, strings);
+	da_release(&strings);
 	return 0;
 }
 
@@ -2900,14 +2899,13 @@ static int window_marks_index(lua_State *L) {
 	if (mark == VIS_MARK_INVALID)
 		return 1;
 
-	Array arr = vis_mark_get(win, mark);
-	for (size_t i = 0, len = arr.len; i < len; i++) {
-		Filerange *range = array_get(&arr, i);
+	FilerangeList ranges = vis_mark_get(vis, win, mark);
+	for (VisDACount i = 0; i < ranges.count; i++) {
 		lua_pushunsigned(L, i+1);
-		pushrange(L, range);
+		pushrange(L, ranges.data + i);
 		lua_settable(L, -3);
 	}
-	array_release(&arr);
+	da_release(&ranges);
 	return 1;
 }
 
@@ -2923,21 +2921,20 @@ static int window_marks_newindex(lua_State *L) {
 	if (mark == VIS_MARK_INVALID)
 		return 0;
 
-	Array ranges;
-	array_init_sized(&ranges, sizeof(Filerange));
+	FilerangeList ranges = {0};
 
 	if (lua_istable(L, 3)) {
 		lua_pushnil(L);
 		while (lua_next(L, 3)) {
 			Filerange range = getrange(L, -1);
 			if (text_range_valid(&range))
-				array_add(&ranges, &range);
+				*da_push(vis, &ranges) = range;
 			lua_pop(L, 1);
 		}
 	}
 
-	vis_mark_set(win, mark, &ranges);
-	array_release(&ranges);
+	vis_mark_set(vis, win, mark, ranges);
+	da_release(&ranges);
 	return 0;
 }
 

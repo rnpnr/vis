@@ -98,4 +98,6 @@ static inline bool addu(size_t a, size_t b, size_t *c) {
 #define PATH_MAX 4096
 #endif
 
+typedef int32_t VisDACount;
+
 #endif /* UTIL_H */

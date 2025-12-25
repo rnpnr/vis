@@ -220,19 +220,18 @@ static size_t op_replace(Vis *vis, Text *txt, OperatorContext *c) {
 	return c->range.start;
 }
 
-int vis_operator_register(Vis *vis, VisOperatorFunction *func, void *context) {
-	Operator *op = calloc(1, sizeof *op);
-	if (!op)
-		return -1;
-	op->func = func;
-	op->context = context;
-	if (array_add_ptr(&vis->operators, op))
-		return VIS_OP_LAST + vis->operators.len - 1;
-	free(op);
-	return -1;
+int vis_operator_register(Vis *vis, VisOperatorFunction *func, void *context)
+{
+	*da_push(vis, &vis->operators) = (Operator){
+		.func    = func,
+		.context = context,
+	};
+	return VIS_OP_LAST + vis->operators.count - 1;
 }
 
-bool vis_operator(Vis *vis, enum VisOperator id, ...) {
+bool vis_operator(Vis *vis, enum VisOperator id, ...)
+{
+	bool result = true;
 	va_list ap;
 	va_start(ap, id);
 
@@ -279,14 +278,16 @@ bool vis_operator(Vis *vis, enum VisOperator id, ...) {
 		break;
 	}
 
-	const Operator *op = NULL;
+	const Operator *op = 0;
 	if (id < LENGTH(vis_operators))
-		op = &vis_operators[id];
-	else
-		op = array_get_ptr(&vis->operators, id - VIS_OP_LAST);
+		op = vis_operators + id;
+	else if ((VisDACount)id - VIS_OP_LAST < vis->operators.count)
+		op = vis->operators.data + id - VIS_OP_LAST;
 
-	if (!op)
-		goto err;
+	if (!op) {
+		result = false;
+		goto out;
+	}
 
 	if (vis->mode->visual) {
 		vis->action.op = op;
@@ -312,10 +313,7 @@ bool vis_operator(Vis *vis, enum VisOperator id, ...) {
 
 out:
 	va_end(ap);
-	return true;
-err:
-	va_end(ap);
-	return false;
+	return result;
 }
 
 const Operator vis_operators[] = {

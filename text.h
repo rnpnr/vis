@@ -17,6 +17,12 @@ typedef struct {
 	size_t end;    /**< Absolute byte position. */
 } Filerange;
 
+typedef struct {
+	Filerange  *data;
+	VisDACount  count;
+	VisDACount  capacity;
+} FilerangeList;
+
 /**
  * Text object storing the buffer content being edited.
  */
@@ -28,6 +34,12 @@ typedef struct {
 	const char *data; /**< Content, might not be NUL-terminated. */
 	size_t len;       /**< Length in bytes. */
 } TextString;
+
+typedef struct {
+	TextString *data;
+	VisDACount  count;
+	VisDACount  capacity;
+} TextStringList;
 
 /**
  * Iterator used to navigate the buffer content.

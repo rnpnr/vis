@@ -1059,11 +1059,10 @@ static Filerange address_evaluate(Address *addr, File *file, Selection *sel, Fil
 		case '\'':
 		{
 			size_t pos = EPOS;
-			Array *marks = &file->marks[addr->number];
-			size_t idx = sel ? view_selections_number(sel) : 0;
-			SelectionRegion *sr = array_get(marks, idx);
-			if (sr)
-				pos = text_mark_get(file->text, sr->cursor);
+			SelectionRegionList *marks = file->marks + addr->number;
+			VisDACount idx = sel ? view_selections_number(sel) : 0;
+			if (idx < marks->count)
+				pos = text_mark_get(file->text, marks->data[idx].cursor);
 			ret = text_range_new(pos, pos);
 			break;
 		}
