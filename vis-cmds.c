@@ -118,7 +118,7 @@ static bool cmd_set(Vis *vis, Win *win, Command *cmd, const char *argv[], Select
 			return false;
 		}
 		value.kind     = VisValueKind_String;
-		value.u.string = argv[2];
+		value.u.string = str8_from_c_str(argv[2]);
 	} else if (opt->flags & VIS_OPTION_TYPE_BOOL) {
 		bool boolean = !toggle;
 		if (argv[2] && !parse_bool(argv[2], &boolean)) {
