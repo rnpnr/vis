@@ -38,7 +38,8 @@ bool text_range_contains(const Filerange *r, size_t pos) {
 	return text_range_valid(r) && r->start <= pos && pos <= r->end;
 }
 
-int text_char_count(const char *data, size_t len) {
+int text_char_count(const char *data, ptrdiff_t len)
+{
 	int count = 0;
 	mbstate_t ps = { 0 };
 	while (len > 0) {
@@ -66,8 +67,8 @@ int text_char_count(const char *data, size_t len) {
 	return count;
 }
 
-int text_string_width(const char *data, size_t len) {
-
+int text_string_width(const char *data, ptrdiff_t len)
+{
 	int width = 0;
 	mbstate_t ps = { 0 };
 	const char *s = data;

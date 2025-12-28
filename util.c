@@ -85,6 +85,15 @@ memory_scan_reverse(const void *memory, uint8_t byte, ptrdiff_t n)
 	return result;
 }
 
+static bool
+str8_equal(str8 a, str8 b)
+{
+	bool result = a.length == b.length;
+	for (ptrdiff_t i = 0; result && i < a.length; i++)
+		result = a.data[i] == b.data[i];
+	return result;
+}
+
 static str8
 str8_from_c_str(char *c_str)
 {
