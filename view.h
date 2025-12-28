@@ -345,7 +345,7 @@ VIS_INTERNAL bool view_regions_save(View*, Filerange, SelectionRegion*);
  * @{
  */
 VIS_INTERNAL void win_options_set(struct Win *, enum UiOption);
-VIS_INTERNAL bool view_breakat_set(View*, const char *breakat);
+VIS_INTERNAL bool view_breakat_set(View*, str8 breakat);
 
 /** Set how many spaces are used to display a tab `\t` character. */
 VIS_INTERNAL void view_tabwidth_set(View*, int tabwidth);
