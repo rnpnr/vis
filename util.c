@@ -89,7 +89,7 @@ static str8
 str8_from_c_str(char *c_str)
 {
 	str8 result = {
-		.length = strlen(c_str),
+		.length = c_str ? strlen(c_str) : 0,
 		.data   = (uint8_t *)c_str,
 	};
 	return result;
