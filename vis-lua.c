@@ -107,6 +107,33 @@ static void stack_dump(lua_State *L, const char *format, ...) {
 
 #endif
 
+static str8
+lua_to_str8(lua_State *L, int index)
+{
+	str8   result;
+	size_t length;
+	result.data   = (uint8_t *)lua_tolstring(L, index, &length);
+	result.length = (ptrdiff_t)length;
+	return result;
+}
+
+static str8
+lua_check_str8(lua_State *L, int index)
+{
+	str8   result;
+	size_t length;
+	result.data   = (uint8_t *)luaL_checklstring(L, index, &length);
+	result.length = (ptrdiff_t)length;
+	return result;
+}
+
+static str8
+lua_opt_str8(lua_State *L, int index, str8 d)
+{
+	str8 result = lua_isnoneornil(L, index) ? d : lua_check_str8(L, index);
+	return result;
+}
+
 static int panic_handler(lua_State *L) {
 	void *ud = NULL;
 	lua_getallocf(L, &ud);
@@ -440,7 +467,8 @@ static const char *keymapping(Vis *vis, const char *keys, const Arg *arg) {
 	lua_State *L = vis->lua;
 	if (!func_ref_get(L, arg->v))
 		return keys;
-	lua_pushstring(L, keys);
+	str8 keys_str = str8_from_c_str((char *)keys);
+	lua_pushlstring(L, keys, keys_str.length);
 	if (pcall(vis, L, 1, 1) != 0)
 		return keys;
 	if (lua_type(L, -1) != LUA_TNUMBER)
@@ -450,10 +478,8 @@ static const char *keymapping(Vis *vis, const char *keys, const Arg *arg) {
 	if (number != integer)
 		return keys;
 	if (integer < 0)
-		return NULL; /* need more input */
-	size_t len = integer;
-	size_t max = strlen(keys);
-	return (len <= max) ? keys+len : keys;
+		return 0; /* need more input */
+	return (integer <= keys_str.length) ? keys + integer : keys;
 }
 
 /***
@@ -1057,18 +1083,17 @@ static bool option_lua(Vis *vis, Win *win, void *context, bool toggle,
 static int option_register(lua_State *L) {
 	Vis *vis = obj_ref_check(L, 1, "vis");
 	const char *name = luaL_checkstring(L, 2);
-	const char *type = luaL_checkstring(L, 3);
+	str8        type = lua_check_str8(L, 3);
 	const void *func = func_ref_new(L, 4);
 	const char *help = luaL_optstring(L, 5, NULL);
-	const char *names[] = { name, NULL };
 	enum VisOption flags = 0;
-	if (strcmp(type, "string") == 0)
+	if (str8_equal(type, str8("string")))
 		flags |= VIS_OPTION_TYPE_STRING;
-	else if (strcmp(type, "number") == 0)
+	else if (str8_equal(type, str8("number")))
 		flags |= VIS_OPTION_TYPE_NUMBER;
 	else
 		flags |= VIS_OPTION_TYPE_BOOL;
-	bool ret = vis_option_register(vis, names, flags, option_lua, (void*)func, help);
+	bool ret = vis_option_register(vis, (const char *[]){name, 0}, flags, option_lua, (void*)func, help);
 	lua_pushboolean(L, ret);
 	return 1;
 }
@@ -1415,8 +1440,9 @@ static int vis_index(lua_State *L) {
 	Vis *vis = obj_ref_check(L, 1, "vis");
 
 	if (lua_isstring(L, 2)) {
-		const char *key = lua_tostring(L, 2);
-		if (strcmp(key, "win") == 0) {
+		str8 key = lua_to_str8(L, 2);
+
+		if (str8_equal(key, str8("win"))) {
 			if (vis->win)
 				obj_ref_new(L, vis->win, VIS_LUA_TYPE_WINDOW);
 			else
@@ -1424,22 +1450,22 @@ static int vis_index(lua_State *L) {
 			return 1;
 		}
 
-		if (strcmp(key, "mode") == 0) {
+		if (str8_equal(key, str8("mode"))) {
 			lua_pushinteger(L, vis->mode->id);
 			return 1;
 		}
 
-		if (strcmp(key, "input_queue") == 0) {
+		if (str8_equal(key, str8("input_queue"))) {
 			lua_pushstring(L, buffer_content0(&vis->input_queue));
 			return 1;
 		}
 
-		if (strcmp(key, "recording") == 0) {
+		if (str8_equal(key, str8("recording"))) {
 			lua_pushboolean(L, vis_macro_recording(vis));
 			return 1;
 		}
 
-		if (strcmp(key, "count") == 0) {
+		if (str8_equal(key, str8("count"))) {
 			int count = vis->action.count;
 			if (count == VIS_COUNT_UNKNOWN)
 				lua_pushnil(L);
@@ -1448,29 +1474,29 @@ static int vis_index(lua_State *L) {
 			return 1;
 		}
 
-		if (strcmp(key, "register") == 0) {
+		if (str8_equal(key, str8("register"))) {
 			char name = vis_register_to(vis, vis_register_used(vis));
 			lua_pushlstring(L, &name, 1);
 			return 1;
 		}
 
-		if (strcmp(key, "registers") == 0) {
+		if (str8_equal(key, str8("registers"))) {
 			obj_ref_new(L, &vis->ui, VIS_LUA_TYPE_REGISTERS);
 			return 1;
 		}
 
-		if (strcmp(key, "mark") == 0) {
+		if (str8_equal(key, str8("mark"))) {
 			char name = vis_mark_to(vis, vis_mark_used(vis));
 			lua_pushlstring(L, &name, 1);
 			return 1;
 		}
 
-		if (strcmp(key, "options") == 0) {
+		if (str8_equal(key, str8("options"))) {
 			obj_ref_new(L, &vis->options, VIS_LUA_TYPE_VIS_OPTS);
 			return 1;
 		}
 
-		if (strcmp(key, "ui") == 0) {
+		if (str8_equal(key, str8("ui"))) {
 			obj_ref_new(L, &vis->ui, VIS_LUA_TYPE_UI);
 			return 1;
 		}
@@ -1479,26 +1505,28 @@ static int vis_index(lua_State *L) {
 	return index_common(L);
 }
 
-static int vis_options_assign(Vis *vis, lua_State *L, const char *key, int next) {
-	if (strcmp(key, "autoindent") == 0 || strcmp(key, "ai") == 0) {
+static int vis_options_assign(Vis *vis, lua_State *L, str8 key, int next)
+{
+	if (str8_equal(key, str8("autoindent")) || str8_equal(key, str8("ai"))) {
 		vis->autoindent = lua_toboolean(L, next);
-	} else if (strcmp(key, "changecolors") == 0) {
+	} else if (str8_equal(key, str8("changecolors"))) {
 		vis->change_colors = lua_toboolean(L, next);
-	} else if (strcmp(key, "escdelay") == 0) {
+	} else if (str8_equal(key, str8("escdelay"))) {
 		termkey_set_waittime(vis->ui.termkey, luaL_checkinteger(L, next));
-	} else if (strcmp(key, "ignorecase") == 0 || strcmp(key, "ic") == 0) {
+	} else if (str8_equal(key, str8("ignorecase")) || str8_equal(key, str8("ic"))) {
 		vis->ignorecase = lua_toboolean(L, next);
-	} else if (strcmp(key, "loadmethod") == 0) {
+	} else if (str8_equal(key, str8("loadmethod"))) {
 		if (!lua_isstring(L, next))
 			return newindex_common(L);
-		const char *lm = lua_tostring(L, next);
-		if (strcmp(lm, "auto") == 0)
+
+		str8 lm = lua_to_str8(L, next);
+		if (str8_equal(lm, str8("auto")))
 			vis->load_method = TEXT_LOAD_AUTO;
-		else if (strcmp(lm, "read") == 0)
+		else if (str8_equal(lm, str8("read")))
 			vis->load_method = TEXT_LOAD_READ;
-		else if (strcmp(lm, "mmap") == 0)
+		else if (str8_equal(lm, str8("mmap")))
 			vis->load_method = TEXT_LOAD_MMAP;
-	} else if (strcmp(key, "shell") == 0) {
+	} else if (str8_equal(key, str8("shell"))) {
 		if (!lua_isstring(L, next))
 			return newindex_common(L);
 		vis_shell_set(vis, lua_tostring(L, next));
@@ -1509,14 +1537,15 @@ static int vis_options_assign(Vis *vis, lua_State *L, const char *key, int next)
 static int vis_newindex(lua_State *L) {
 	Vis *vis = obj_ref_check(L, 1, "vis");
 	if (lua_isstring(L, 2)) {
-		const char *key = lua_tostring(L, 2);
-		if (strcmp(key, "mode") == 0) {
+		str8 key = lua_to_str8(L, 2);
+
+		if (str8_equal(key, str8("mode"))) {
 			enum VisMode mode = luaL_checkinteger(L, 3);
 			vis_mode_switch(vis, mode);
 			return 0;
 		}
 
-		if (strcmp(key, "count") == 0) {
+		if (str8_equal(key, str8("count"))) {
 			int count;
 			if (lua_isnil(L, 3))
 				count = VIS_COUNT_UNKNOWN;
@@ -1526,26 +1555,26 @@ static int vis_newindex(lua_State *L) {
 			return 0;
 		}
 
-		if (strcmp(key, "win") == 0) {
+		if (str8_equal(key, str8("win"))) {
 			vis_window_focus(obj_ref_check(L, 3, VIS_LUA_TYPE_WINDOW));
 			return 0;
 		}
 
-		if (strcmp(key, "register") == 0) {
-			const char *name = luaL_checkstring(L, 3);
-			if (strlen(name) == 1)
-				vis_register(vis, vis_register_from(vis, name[0]));
+		if (str8_equal(key, str8("register"))) {
+			str8 name = lua_check_str8(L, 3);
+			if (name.length == 1)
+				vis_register(vis, vis_register_from(vis, name.data[0]));
 			return 0;
 		}
 
-		if (strcmp(key, "mark") == 0) {
-			const char *name = luaL_checkstring(L, 3);
-			if (strlen(name) == 1)
-				vis_mark(vis, vis_mark_from(vis, name[0]));
+		if (str8_equal(key, str8("mark"))) {
+			str8 name = lua_check_str8(L, 3);
+			if (name.length == 1)
+				vis_mark(vis, vis_mark_from(vis, name.data[0]));
 			return 0;
 		}
 
-		if (strcmp(key, "options") == 0 && lua_istable(L, 3)) {
+		if (str8_equal(key, str8("options")) && lua_istable(L, 3)) {
 			int ret = 0;
 			/* since we don't know which keys are in the table we push
 			 * a nil then use lua_next() to remove it and push the
@@ -1555,7 +1584,7 @@ static int vis_newindex(lua_State *L) {
 			lua_pushnil(L);
 			while (lua_next(L, 3)) {
 				if (lua_isstring(L, 4))
-					ret += vis_options_assign(vis, L, lua_tostring(L, 4), 5);
+					ret += vis_options_assign(vis, L, lua_to_str8(L, 4), 5);
 				else
 					ret += newindex_common(L);
 				lua_pop(L, 1);
@@ -1618,33 +1647,38 @@ static int vis_options_index(lua_State *L) {
 	if (!vis)
 		return -1;
 	if (lua_isstring(L, 2)) {
-		const char *key = lua_tostring(L, 2);
-		if (strcmp(key, "autoindent") == 0 || strcmp(key, "ai") == 0) {
+		str8 key = lua_to_str8(L, 2);
+
+		if (str8_equal(key, str8("autoindent")) || str8_equal(key, str8("ai"))) {
 			lua_pushboolean(L, vis->autoindent);
 			return 1;
-		} else if (strcmp(key, "changecolors") == 0) {
+		}
+
+		if (str8_equal(key, str8("changecolors"))) {
 			lua_pushboolean(L, vis->change_colors);
 			return 1;
-		} else if (strcmp(key, "escdelay") == 0) {
+		}
+
+		if (str8_equal(key, str8("escdelay"))) {
 			lua_pushinteger(L, termkey_get_waittime(vis->ui.termkey));
 			return 1;
-		} else if (strcmp(key, "ignorecase") == 0 || strcmp(key, "ic") == 0) {
+		}
+
+		if (str8_equal(key, str8("ignorecase")) || str8_equal(key, str8("ic"))) {
 			lua_pushboolean(L, vis->ignorecase);
 			return 1;
-		} else if (strcmp(key, "loadmethod") == 0) {
+		}
+
+		if (str8_equal(key, str8("loadmethod"))) {
 			switch (vis->load_method) {
-			case TEXT_LOAD_AUTO:
-				lua_pushliteral(L, "auto");
-				break;
-			case TEXT_LOAD_READ:
-				lua_pushliteral(L, "read");
-				break;
-			case TEXT_LOAD_MMAP:
-				lua_pushliteral(L, "mmap");
-				break;
+			case TEXT_LOAD_AUTO: lua_pushliteral(L, "auto"); break;
+			case TEXT_LOAD_READ: lua_pushliteral(L, "read"); break;
+			case TEXT_LOAD_MMAP: lua_pushliteral(L, "mmap"); break;
 			}
 			return 1;
-		} else if (strcmp(key, "shell") == 0) {
+		}
+
+		if (str8_equal(key, str8("shell"))) {
 			lua_pushstring(L, vis->shell);
 			return 1;
 		}
@@ -1657,7 +1691,7 @@ static int vis_options_newindex(lua_State *L) {
 	if (!vis)
 		return 0;
 	if (lua_isstring(L, 2))
-		return vis_options_assign(vis, L, lua_tostring(L, 2), 3);
+		return vis_options_assign(vis, L, lua_to_str8(L, 2), 3);
 	return newindex_common(L);
 }
 
@@ -1685,9 +1719,9 @@ static int ui_index(lua_State *L) {
 	Ui *ui = obj_ref_check(L, 1,  VIS_LUA_TYPE_UI);
 
 	if (lua_isstring(L, 2)) {
-		const char *key  = lua_tostring(L, 2);
+		str8 key = lua_to_str8(L, 2);
 
-		if (strcmp(key, "layout") == 0) {
+		if (str8_equal(key, str8("layout"))) {
 			lua_pushinteger(L, ui->layout);
 			return 1;
 		}
@@ -1700,9 +1734,9 @@ static int ui_newindex(lua_State *L) {
 	Ui *ui = obj_ref_check(L, 1,  VIS_LUA_TYPE_UI);
 
 	if (lua_isstring(L, 2)) {
-		const char *key  = lua_tostring(L, 2);
+		str8 key = lua_to_str8(L, 2);
 
-		if (strcmp(key, "layout") == 0) {
+		if (str8_equal(key, str8("layout"))) {
 			ui_arrange(ui, luaL_checkinteger(L, 3));
 			return 0;
 		}
@@ -1716,13 +1750,15 @@ static const struct luaL_Reg ui_funcs[] = {
 	{ NULL, NULL },
 };
 
-static int registers_index(lua_State *L) {
+static int registers_index(lua_State *L)
+{
 	lua_newtable(L);
 	Vis *vis = lua_touserdata(L, lua_upvalueindex(1));
-	const char *symbol = luaL_checkstring(L, 2);
-	if (strlen(symbol) != 1)
+
+	str8 symbol = lua_check_str8(L, 2);
+	if (symbol.length != 1)
 		return 1;
-	enum VisRegister reg = vis_register_from(vis, symbol[0]);
+	enum VisRegister reg = vis_register_from(vis, symbol.data[0]);
 	if (reg >= VIS_REG_INVALID)
 		return 1;
 	str8_list strings = vis_register_get(vis, reg);
@@ -1736,22 +1772,20 @@ static int registers_index(lua_State *L) {
 	return 1;
 }
 
-static int registers_newindex(lua_State *L) {
+static int registers_newindex(lua_State *L)
+{
 	Vis *vis = lua_touserdata(L, lua_upvalueindex(1));
-	const char *symbol = luaL_checkstring(L, 2);
-	if (strlen(symbol) != 1)
+
+	str8 symbol = lua_check_str8(L, 2);
+	if (symbol.length != 1)
 		return 0;
-	enum VisRegister reg = vis_register_from(vis, symbol[0]);
+	enum VisRegister reg = vis_register_from(vis, symbol.data[0]);
 
 	str8_list strings = {0};
 	if (lua_istable(L, 3)) {
 		lua_pushnil(L);
 		while (lua_next(L, 3)) {
-			size_t length;
-			str8   string;
-			string.data   = (uint8_t *)luaL_checklstring(L, -1, &length);
-			string.length = (ptrdiff_t)length;
-			*da_push(vis, &strings) = string;
+			*da_push(vis, &strings) = lua_check_str8(L, -1);
 			lua_pop(L, 1);
 		}
 	}
@@ -1821,9 +1855,9 @@ static int window_index(lua_State *L) {
 	Win *win = obj_ref_check(L, 1, VIS_LUA_TYPE_WINDOW);
 
 	if (lua_isstring(L, 2)) {
-		const char *key = lua_tostring(L, 2);
+		str8 key = lua_to_str8(L, 2);
 
-		if (strcmp(key, "viewport") == 0) {
+		if (str8_equal(key, str8("viewport"))) {
 			Filerange b = VIEW_VIEWPORT_GET(win->view);
 			Filerange l;
 			l.start = win->view.topline->lineno;
@@ -1845,37 +1879,38 @@ static int window_index(lua_State *L) {
 			return 1;
 		}
 
-		if (strcmp(key, "width") == 0) {
+		if (str8_equal(key, str8("width"))) {
 			lua_pushinteger(L, win->width);
 			return 1;
 		}
 
-		if (strcmp(key, "height") == 0) {
+		if (str8_equal(key, str8("height"))) {
 			lua_pushinteger(L, win->height);
 			return 1;
 		}
 
-		if (strcmp(key, "file") == 0) {
+		if (str8_equal(key, str8("file"))) {
 			obj_ref_new(L, win->file, VIS_LUA_TYPE_FILE);
 			return 1;
 		}
 
-		if (strcmp(key, "selection") == 0) {
+		if (str8_equal(key, str8("selection"))) {
 			Selection *sel = view_selections_primary_get(&win->view);
 			obj_lightref_new(L, sel, VIS_LUA_TYPE_SELECTION);
 			return 1;
 		}
 
-		if (strcmp(key, "selections") == 0) {
+		if (str8_equal(key, str8("selections"))) {
 			obj_ref_new(L, &win->view, VIS_LUA_TYPE_SELECTIONS);
 			return 1;
 		}
 
-		if (strcmp(key, "marks") == 0) {
+		if (str8_equal(key, str8("marks"))) {
 			obj_ref_new(L, &win->saved_selections, VIS_LUA_TYPE_MARKS);
 			return 1;
 		}
-		if (strcmp(key, "options") == 0) {
+
+		if (str8_equal(key, str8("options"))) {
 			obj_ref_new(L, &win->view, VIS_LUA_TYPE_WIN_OPTS);
 			return 1;
 		}
@@ -1884,66 +1919,68 @@ static int window_index(lua_State *L) {
 	return index_common(L);
 }
 
-static int window_options_assign(Win *win, lua_State *L, const char *key, int next) {
+static int window_options_assign(Win *win, lua_State *L, str8 key, int next)
+{
 	enum UiOption flags = win->options;
-	if (strcmp(key, "breakat") == 0 || strcmp(key, "brk") == 0) {
+
+	if (str8_equal(key, str8("breakat")) || str8_equal(key, str8("brk"))) {
 		if (lua_isstring(L, next))
 			view_breakat_set(&win->view, lua_tostring(L, next));
-	} else if (strcmp(key, "colorcolumn") == 0 || strcmp(key, "cc") == 0) {
+	} else if (str8_equal(key, str8("colorcolumn")) || str8_equal(key, str8("cc"))) {
 		win->view.colorcolumn = luaL_checkinteger(L, next);
-	} else if (strcmp(key, "cursorline") == 0 || strcmp(key, "cul") == 0) {
+	} else if (str8_equal(key, str8("cursorline")) || str8_equal(key, str8("cul"))) {
 		if (lua_toboolean(L, next))
 			flags |= UI_OPTION_CURSOR_LINE;
 		else
 			flags &= ~UI_OPTION_CURSOR_LINE;
 		win_options_set(win, flags);
-	} else if (strcmp(key, "numbers") == 0 || strcmp(key, "nu") == 0) {
+	} else if (str8_equal(key, str8("numbers")) || str8_equal(key, str8("nu"))) {
 		if (lua_toboolean(L, next))
 			flags |= UI_OPTION_LINE_NUMBERS_ABSOLUTE;
 		else
 			flags &= ~UI_OPTION_LINE_NUMBERS_ABSOLUTE;
 		win_options_set(win, flags);
-	} else if (strcmp(key, "relativenumbers") == 0 || strcmp(key, "rnu") == 0) {
+	} else if (str8_equal(key, str8("relativenumbers")) || str8_equal(key, str8("rnu"))) {
 		if (lua_toboolean(L, next))
 			flags |= UI_OPTION_LINE_NUMBERS_RELATIVE;
 		else
 			flags &= ~UI_OPTION_LINE_NUMBERS_RELATIVE;
 		win_options_set(win, flags);
-	} else if (strcmp(key, "showeof") == 0) {
+	} else if (str8_equal(key, str8("showeof"))) {
 		if (lua_toboolean(L, next))
 			flags |= UI_OPTION_SYMBOL_EOF;
 		else
 			flags &= ~UI_OPTION_SYMBOL_EOF;
 		win_options_set(win, flags);
-	} else if (strcmp(key, "shownewlines") == 0) {
+	} else if (str8_equal(key, str8("shownewlines"))) {
 		if (lua_toboolean(L, next))
 			flags |= UI_OPTION_SYMBOL_EOL;
 		else
 			flags &= ~UI_OPTION_SYMBOL_EOL;
 		win_options_set(win, flags);
-	} else if (strcmp(key, "showspaces") == 0) {
+	} else if (str8_equal(key, str8("showspaces"))) {
 		if (lua_toboolean(L, next))
 			flags |= UI_OPTION_SYMBOL_SPACE;
 		else
 			flags &= ~UI_OPTION_SYMBOL_SPACE;
 		win_options_set(win, flags);
-	} else if (strcmp(key, "showtabs") == 0) {
+	} else if (str8_equal(key, str8("showtabs"))) {
 		if (lua_toboolean(L, next))
 			flags |= UI_OPTION_SYMBOL_TAB;
 		else
 			flags &= ~UI_OPTION_SYMBOL_TAB;
 		win_options_set(win, flags);
-	} else if (strcmp(key, "statusbar") == 0) {
+	} else if (str8_equal(key, str8("statusbar"))) {
 		if (lua_toboolean(L, next))
 			flags |= UI_OPTION_STATUSBAR;
 		else
 			flags &= ~UI_OPTION_STATUSBAR;
 		win_options_set(win, flags);
-	} else if (strcmp(key, "wrapcolumn") == 0 || strcmp(key, "wc") == 0) {
+	} else if (str8_equal(key, str8("wrapcolumn")) || str8_equal(key, str8("wc"))) {
 		win->view.wrapcolumn = luaL_checkinteger(L, next);
-	} else if (strcmp(key, "tabwidth") == 0 || strcmp(key, "tw") == 0) {
+	} else if (str8_equal(key, str8("tabwidth")) || str8_equal(key, str8("tw"))) {
 		view_tabwidth_set(&win->view, luaL_checkinteger(L, next));
-	} else if (strcmp(key, "expandtab") == 0 || strcmp(key, "et") == 0) {
+	} else if (str8_equal(key, str8("expandtab")) || str8_equal(key, str8("et"))) {
 		win->expandtab = lua_toboolean(L, next);
 	}
 	return 0;
@@ -1953,8 +1990,9 @@ static int window_newindex(lua_State *L) {
 	Win *win = obj_ref_check(L, 1, VIS_LUA_TYPE_WINDOW);
 
 	if (lua_isstring(L, 2)) {
-		const char *key = lua_tostring(L, 2);
-		if (strcmp(key, "options") == 0 && lua_istable(L, 3)) {
+		str8 key = lua_to_str8(L, 2);
+
+		if (str8_equal(key, str8("options")) && lua_istable(L, 3)) {
 			int ret = 0;
 			/* since we don't know which keys are in the table we push
 			 * a nil then use lua_next() to remove it and push the
@@ -1964,14 +2002,16 @@ static int window_newindex(lua_State *L) {
 			lua_pushnil(L);
 			while (lua_next(L, 3)) {
 				if (lua_isstring(L, 4))
-					ret += window_options_assign(win, L, lua_tostring(L, 4), 5);
+					ret += window_options_assign(win, L, lua_to_str8(L, 4), 5);
 				else
 					ret += newindex_common(L);
 				lua_pop(L, 1);
 			}
 			lua_pop(L, 1);
 			return ret;
-		} else if (strcmp(key, "file") == 0 && lua_isstring(L, 3)) {
+		}
+
+		if (str8_equal(key, str8("file")) && lua_isstring(L, 3)) {
 			const char* filename = lua_tostring(L, 3);
 			if (!vis_window_change_file(win, filename)) {
 				return luaL_argerror(L, 3, "failed to open");
@@ -2109,18 +2149,21 @@ static int window_style_pos(lua_State *L) {
  * @tparam string left the left aligned part of the status line
  * @tparam[opt] string right the right aligned part of the status line
  */
-static int window_status(lua_State *L) {
+static int window_status(lua_State *L)
+{
 	Win *win = obj_ref_check(L, 1, VIS_LUA_TYPE_WINDOW);
 	char status[1024] = "";
 	int width = win->width;
-	const char *left = luaL_checkstring(L, 2);
-	const char *right = luaL_optstring(L, 3, "");
-	int left_width = text_string_width(left, strlen(left));
-	int right_width = text_string_width(right, strlen(right));
+
+	str8 left  = lua_check_str8(L, 2);
+	str8 right = lua_opt_str8(L, 3, str8(""));
+
+	int left_width = text_string_width((char *)left.data, left.length);
+	int right_width = text_string_width((char *)right.data, right.length);
 	int spaces = width - left_width - right_width;
 	if (spaces < 1)
 		spaces = 1;
-	snprintf(status, sizeof(status)-1, "%s%*s%s", left, spaces, " ", right);
+	snprintf(status, sizeof(status)-1, "%s%*s%s", (char *)left.data, spaces, " ", (char *)right.data);
 	ui_window_status(win, status);
 	return 0;
 }
@@ -2202,44 +2245,69 @@ static int window_options_index(lua_State *L) {
 	if (!win)
 		return -1;
 	if (lua_isstring(L, 2)) {
-		const char *key = lua_tostring(L, 2);
-		if (strcmp(key, "breakat") == 0 || strcmp(key, "brk") == 0) {
+		str8 key = lua_to_str8(L, 2);
+
+		if (str8_equal(key, str8("breakat")) || str8_equal(key, str8("brk"))) {
 			lua_pushstring(L, win->view.breakat);
 			return 1;
-		} else if (strcmp(key, "colorcolumn") == 0 || strcmp(key, "cc") == 0) {
+		}
+
+		if (str8_equal(key, str8("colorcolumn")) || str8_equal(key, str8("cc"))) {
 			lua_pushinteger(L, win->view.colorcolumn);
 			return 1;
-		} else if (strcmp(key, "cursorline") == 0 || strcmp(key, "cul") == 0) {
+		}
+
+		if (str8_equal(key, str8("cursorline")) || str8_equal(key, str8("cul"))) {
 			lua_pushboolean(L, win->options & UI_OPTION_CURSOR_LINE);
 			return 1;
-		} else if (strcmp(key, "expandtab") == 0 || strcmp(key, "et") == 0) {
+		}
+
+		if (str8_equal(key, str8("expandtab")) || str8_equal(key, str8("et"))) {
 			lua_pushboolean(L, win->expandtab);
 			return 1;
-		} else if (strcmp(key, "numbers") == 0 || strcmp(key, "nu") == 0) {
+		}
+
+		if (str8_equal(key, str8("numbers")) || str8_equal(key, str8("nu"))) {
 			lua_pushboolean(L, win->options & UI_OPTION_LINE_NUMBERS_ABSOLUTE);
 			return 1;
-		} else if (strcmp(key, "relativenumbers") == 0 || strcmp(key, "rnu") == 0) {
+		}
+
+		if (str8_equal(key, str8("relativenumbers")) || str8_equal(key, str8("rnu"))) {
 			lua_pushboolean(L, win->options & UI_OPTION_LINE_NUMBERS_RELATIVE);
 			return 1;
-		} else if (strcmp(key, "showeof") == 0) {
+		}
+
+		if (str8_equal(key, str8("showeof"))) {
 			lua_pushboolean(L, win->options & UI_OPTION_SYMBOL_EOF);
 			return 1;
-		} else if (strcmp(key, "shownewlines") == 0) {
+		}
+
+		if (str8_equal(key, str8("shownewlines"))) {
 			lua_pushboolean(L, win->options & UI_OPTION_SYMBOL_EOL);
 			return 1;
-		} else if (strcmp(key, "showspaces") == 0) {
+		}
+
+		if (str8_equal(key, str8("showspaces"))) {
 			lua_pushboolean(L, win->options & UI_OPTION_SYMBOL_SPACE);
 			return 1;
-		} else if (strcmp(key, "showtabs") == 0) {
+		}
+
+		if (str8_equal(key, str8("showtabs"))) {
 			lua_pushboolean(L, win->options & UI_OPTION_SYMBOL_TAB);
 			return 1;
-		} else if (strcmp(key, "statusbar") == 0) {
+		}
+
+		if (str8_equal(key, str8("statusbar"))) {
 			lua_pushboolean(L, win->options & UI_OPTION_STATUSBAR);
 			return 1;
-		} else if (strcmp(key, "tabwidth") == 0 || strcmp(key, "tw") == 0) {
+		}
+
+		if (str8_equal(key, str8("tabwidth")) || str8_equal(key, str8("tw"))) {
 			lua_pushinteger(L, win->view.tabwidth);
 			return 1;
-		} else if (strcmp(key, "wrapcolumn") == 0 || strcmp(key, "wc") == 0) {
+		}
+
+		if (str8_equal(key, str8("wrapcolumn")) || str8_equal(key, str8("wc"))) {
 			lua_pushinteger(L, win->view.wrapcolumn);
 			return 1;
 		}
@@ -2252,7 +2320,7 @@ static int window_options_newindex(lua_State *L) {
 	if (!win)
 		return 0;
 	if (lua_isstring(L, 2))
-		return window_options_assign(win, L, lua_tostring(L, 2), 3);
+		return window_options_assign(win, L, lua_to_str8(L, 2), 3);
 	return newindex_common(L);
 }
 
@@ -2397,34 +2465,35 @@ static int window_selection_index(lua_State *L) {
 	}
 
 	if (lua_isstring(L, 2)) {
-		const char *key = lua_tostring(L, 2);
-		if (strcmp(key, "pos") == 0) {
+		str8 key = lua_to_str8(L, 2);
+
+		if (str8_equal(key, str8("pos"))) {
 			pushpos(L, view_cursors_pos(sel));
 			return 1;
 		}
 
-		if (strcmp(key, "line") == 0) {
+		if (str8_equal(key, str8("line"))) {
 			lua_pushinteger(L, view_cursors_line(sel));
 			return 1;
 		}
 
-		if (strcmp(key, "col") == 0) {
+		if (str8_equal(key, str8("col"))) {
 			lua_pushinteger(L, view_cursors_col(sel));
 			return 1;
 		}
 
-		if (strcmp(key, "number") == 0) {
+		if (str8_equal(key, str8("number"))) {
 			lua_pushinteger(L, view_selections_number(sel)+1);
 			return 1;
 		}
 
-		if (strcmp(key, "range") == 0) {
+		if (str8_equal(key, str8("range"))) {
 			Filerange range = view_selections_get(sel);
 			pushrange(L, &range);
 			return 1;
 		}
 
-		if (strcmp(key, "anchored") == 0) {
+		if (str8_equal(key, str8("anchored"))) {
 			lua_pushboolean(L, sel->anchored);
 			return 1;
 		}
@@ -2439,14 +2508,15 @@ static int window_selection_newindex(lua_State *L) {
 	if (!sel)
 		return 0;
 	if (lua_isstring(L, 2)) {
-		const char *key = lua_tostring(L, 2);
-		if (strcmp(key, "pos") == 0) {
+		str8 key = lua_to_str8(L, 2);
+
+		if (str8_equal(key, str8("pos"))) {
 			size_t pos = checkpos(L, 3);
 			view_cursors_to(sel, pos);
 			return 0;
 		}
 
-		if (strcmp(key, "range") == 0) {
+		if (str8_equal(key, str8("range"))) {
 			Filerange range = getrange(L, 3);
 			if (text_range_valid(&range)) {
 				view_selections_set(sel, &range);
@@ -2457,7 +2527,7 @@ static int window_selection_newindex(lua_State *L) {
 			return 0;
 		}
 
-		if (strcmp(key, "anchored") == 0) {
+		if (str8_equal(key, str8("anchored"))) {
 			sel->anchored = lua_toboolean(L, 3);
 			return 0;
 		}
@@ -2546,49 +2616,44 @@ static int file_index(lua_State *L) {
 	File *file = obj_ref_check(L, 1, VIS_LUA_TYPE_FILE);
 
 	if (lua_isstring(L, 2)) {
-		const char *key = lua_tostring(L, 2);
-		if (strcmp(key, "name") == 0) {
+		str8 key = lua_to_str8(L, 2);
+
+		if (str8_equal(key, str8("name"))) {
 			lua_pushstring(L, file_name_get(file));
 			return 1;
 		}
 
-		if (strcmp(key, "path") == 0) {
+		if (str8_equal(key, str8("path"))) {
 			lua_pushstring(L, file->name);
 			return 1;
 		}
 
-		if (strcmp(key, "lines") == 0) {
+		if (str8_equal(key, str8("lines"))) {
 			obj_ref_new(L, file->text, VIS_LUA_TYPE_TEXT);
 			return 1;
 		}
 
-		if (strcmp(key, "size") == 0) {
+		if (str8_equal(key, str8("size"))) {
 			lua_pushinteger(L, text_size(file->text));
 			return 1;
 		}
 
-		if (strcmp(key, "modified") == 0) {
+		if (str8_equal(key, str8("modified"))) {
 			lua_pushboolean(L, text_modified(file->text));
 			return 1;
 		}
 
-		if (strcmp(key, "permission") == 0) {
+		if (str8_equal(key, str8("permission"))) {
 			struct stat stat = text_stat(file->text);
 			lua_pushinteger(L, stat.st_mode & 0777);
 			return 1;
 		}
 
-		if (strcmp(key, "savemethod") == 0) {
+		if (str8_equal(key, str8("savemethod"))) {
 			switch (file->save_method) {
-			case TEXT_SAVE_AUTO:
-				lua_pushliteral(L, "auto");
-				break;
-			case TEXT_SAVE_ATOMIC:
-				lua_pushliteral(L, "atomic");
-				break;
-			case TEXT_SAVE_INPLACE:
-				lua_pushliteral(L, "inplace");
-				break;
+			case TEXT_SAVE_AUTO:    lua_pushliteral(L, "auto");    break;
+			case TEXT_SAVE_ATOMIC:  lua_pushliteral(L, "atomic");  break;
+			case TEXT_SAVE_INPLACE: lua_pushliteral(L, "inplace"); break;
 			}
 			return 1;
 		}
@@ -2603,9 +2668,9 @@ static int file_newindex(lua_State *L)
 	File *file = obj_ref_check(L, 1, VIS_LUA_TYPE_FILE);
 
 	if (lua_isstring(L, 2)) {
-		const char *key = lua_tostring(L, 2);
+		str8 key = lua_to_str8(L, 2);
 
-		if (strcmp(key, "modified") == 0) {
+		if (str8_equal(key, str8("modified"))) {
 			bool modified = lua_isboolean(L, 3) && lua_toboolean(L, 3);
 			if (modified) {
 				text_insert(vis, file->text, 0, " ", 1);
@@ -2616,15 +2681,16 @@ static int file_newindex(lua_State *L)
 			return 0;
 		}
 
-		if (strcmp(key, "savemethod") == 0) {
+		if (str8_equal(key, str8("savemethod"))) {
 			if (!lua_isstring(L, 3))
 				return newindex_common(L);
-			const char *sm = lua_tostring(L, 3);
-			if (strcmp(sm, "auto") == 0)
+
+			str8 sm = lua_to_str8(L, 3);
+			if (str8_equal(sm, str8("auto")))
 				file->save_method = TEXT_SAVE_AUTO;
-			else if (strcmp(sm, "atomic") == 0)
+			else if (str8_equal(sm, str8("atomic")))
 				file->save_method = TEXT_SAVE_ATOMIC;
-			else if (strcmp(sm, "inplace") == 0)
+			else if (str8_equal(sm, str8("inplace")))
 				file->save_method = TEXT_SAVE_INPLACE;
 			return 0;
 		}
@@ -2904,10 +2970,11 @@ static int window_marks_index(lua_State *L) {
 	Win *win = obj_ref_check_containerof(L, 1, VIS_LUA_TYPE_MARKS, offsetof(Win, saved_selections));
 	if (!win)
 		return 1;
-	const char *symbol = luaL_checkstring(L, 2);
-	if (strlen(symbol) != 1)
+
+	str8 symbol = lua_check_str8(L, 2);
+	if (symbol.length != 1)
 		return 1;
-	enum VisMark mark = vis_mark_from(vis, symbol[0]);
+	enum VisMark mark = vis_mark_from(vis, symbol.data[0]);
 	if (mark == VIS_MARK_INVALID)
 		return 1;
 
@@ -2926,10 +2993,11 @@ static int window_marks_newindex(lua_State *L) {
 	Win *win = obj_ref_check_containerof(L, 1, VIS_LUA_TYPE_MARKS, offsetof(Win, saved_selections));
 	if (!win)
 		return 0;
-	const char *symbol = luaL_checkstring(L, 2);
-	if (strlen(symbol) != 1)
+
+	str8 symbol = lua_check_str8(L, 2);
+	if (symbol.length != 1)
 		return 0;
-	enum VisMark mark = vis_mark_from(vis, symbol[0]);
+	enum VisMark mark = vis_mark_from(vis, symbol.data[0]);
 	if (mark == VIS_MARK_INVALID)
 		return 0;
 
@@ -3086,12 +3154,12 @@ static bool vis_lua_path_strip(Vis *vis) {
 	for (const char **var = (const char*[]){ "path", "cpath", NULL }; *var; var++) {
 
 		lua_getfield(L, -1, *var);
-		const char *path = lua_tostring(L, -1);
+		str8 path = lua_to_str8(L, -1);
 		lua_pop(L, 1);
-		if (!path)
+		if (path.data == 0)
 			return false;
 
-		char *copy = strdup(path), *stripped = calloc(1, strlen(path)+2);
+		char *copy = strdup((char *)path.data), *stripped = calloc(1, path.length + 2);
 		if (!copy || !stripped) {
 			free(copy);
 			free(stripped);
