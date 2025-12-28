@@ -48,7 +48,6 @@
 
 #if !CONFIG_LUA
 
-bool vis_lua_path_add(Vis *vis, const char *path) { return true; }
 bool vis_lua_paths_get(Vis *vis, char **lpath, char **cpath) { return false; }
 void vis_lua_process_response(Vis *vis, const char *name,
                               char *buffer, size_t len, ResponseType rtype) { }
@@ -3122,20 +3121,19 @@ static bool vis_lua_path_strip(Vis *vis) {
 	return true;
 }
 
-bool vis_lua_path_add(Vis *vis, const char *path) {
-	lua_State *L = vis->lua;
-	if (!L || !path)
-		return false;
-	lua_getglobal(L, "package");
-	lua_pushstring(L, path);
-	lua_pushstring(L, "/?.lua;");
-	lua_pushstring(L, path);
-	lua_pushstring(L, "/?/init.lua;");
-	lua_getfield(L, -5, "path");
-	lua_concat(L, 5);
-	lua_setfield(L, -2, "path");
-	lua_pop(L, 1); /* package */
-	return true;
+static void lua_path_add(lua_State *L, str8 path)
+{
+	if (path.length) {
+		lua_getglobal(L, "package");
+		lua_pushlstring(L, (char *)path.data, path.length);
+		lua_pushliteral(L, "/?.lua;");
+		lua_pushlstring(L, (char *)path.data, path.length);
+		lua_pushliteral(L, "/?/init.lua;");
+		lua_getfield(L, -5, "path");
+		lua_concat(L, 5);
+		lua_setfield(L, -2, "path");
+		lua_pop(L, 1); /* package */
+	}
 }
 
 bool vis_lua_paths_get(Vis *vis, char **lpath, char **cpath) {
@@ -3225,9 +3223,10 @@ static void vis_lua_init(Vis *vis) {
 	 * - /usr/(local/)?share/vis (or whatever is specified during ./configure)
 	 * - package.path (standard lua search path)
 	 */
-	char path[PATH_MAX];
+	char path_buffer[PATH_MAX];
+	str8 path = {.data = (uint8_t *)path_buffer};
 
-	vis_lua_path_add(vis, VIS_PATH);
+	lua_path_add(L, str8(VIS_PATH));
 
 	/* try to get users home directory */
 	const char *home = getenv("HOME");
@@ -3237,28 +3236,29 @@ static void vis_lua_init(Vis *vis) {
 			home = pw->pw_dir;
 	}
 
-	vis_lua_path_add(vis, "/etc/vis");
+	lua_path_add(L, str8("/etc/vis"));
 
 	const char *xdg_config = getenv("XDG_CONFIG_HOME");
 	if (xdg_config) {
-		snprintf(path, sizeof path, "%s/vis", xdg_config);
-		vis_lua_path_add(vis, path);
+		path.length = snprintf(path_buffer, sizeof(path_buffer), "%s/vis", xdg_config);
+		lua_path_add(L, path);
 	} else if (home && *home) {
-		snprintf(path, sizeof path, "%s/.config/vis", home);
-		vis_lua_path_add(vis, path);
+		path.length = snprintf(path_buffer, sizeof(path_buffer), "%s/.config/vis", home);
+		lua_path_add(L, path);
 	}
 
-	ssize_t len = readlink("/proc/self/exe", path, sizeof(path)-1);
+	ssize_t len = readlink("/proc/self/exe", path_buffer, sizeof(path_buffer)-1);
 	if (len > 0) {
 		str8 dir, tail = str8("/lua");
-		path_split((str8){.length = len, .data = (uint8_t *)path}, &dir, 0);
-		if (dir.length + tail.length + 1 < sizeof(path)) {
-			memcpy(path + dir.length, tail.data, tail.length + 1);
-			vis_lua_path_add(vis, path);
+		path_split((str8){.length = len, .data = path.data}, &dir, 0);
+		path.length = dir.length + tail.length;
+		if (path.length <= sizeof(path_buffer)) {
+			memcpy(path.data + dir.length, tail.data, tail.length);
+			lua_path_add(L, path);
 		}
 	}
 
-	vis_lua_path_add(vis, getenv("VIS_PATH"));
+	lua_path_add(L, str8_from_c_str(getenv("VIS_PATH")));
 
 	/* table in registry to lookup object type, stores metatable -> type mapping */
 	lua_newtable(L);

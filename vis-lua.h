@@ -18,8 +18,6 @@ typedef void* lua_CFunction;
 #include "vis.h"
 #include "vis-subprocess.h"
 
-/* add a directory to consider when loading lua files */
-VIS_INTERNAL bool vis_lua_path_add(Vis*, const char *path);
 /* get semicolon separated list of paths to load lua files
  * (*lpath = package.path) and Lua C modules (*cpath = package.cpath)
  * both these pointers need to be free(3)-ed by the caller */
