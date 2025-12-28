@@ -63,9 +63,9 @@ typedef enum {
 typedef struct {
 	VisValueKind kind;
 	union {
-		int64_t     integer;
-		bool        boolean;
-		const char *string;
+		int64_t integer;
+		bool    boolean;
+		str8    string;
 	} u;
 } VisValue;
 
@@ -785,7 +785,7 @@ VIS_EXPORT int vis_motion_register(Vis *vis, void *context, VisMotionFunction *f
  * @param vis The editor instance.
  * @param new_shell The new shell to set.
  */
-VIS_EXPORT void vis_shell_set(Vis *vis, const char *new_shell);
+VIS_EXPORT void vis_shell_set(Vis *vis, str8 new_shell);
 
 typedef struct {
 	Vis *vis;

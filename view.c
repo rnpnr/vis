@@ -901,8 +901,10 @@ void win_options_set(Win *win, enum UiOption options) {
 	ui_window_options_set(win, options);
 }
 
-bool view_breakat_set(View *view, const char *breakat) {
-	char *copy = strdup(breakat);
+VIS_EXPORT bool
+view_breakat_set(View *view, str8 breakat)
+{
+	char *copy = strndup((char *)breakat.data, breakat.length);
 	if (!copy)
 		return false;
 	free(view->breakat);

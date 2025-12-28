@@ -226,9 +226,9 @@ vis_option_from_string(Vis *vis, str8 string)
 }
 
 VIS_EXPORT void
-vis_shell_set(Vis *vis, const char *new_shell)
+vis_shell_set(Vis *vis, str8 new_shell)
 {
-	char *shell =  strdup(new_shell);
+	char *shell =  strndup((char *)new_shell.data, new_shell.length);
 	if (!shell) {
 		vis_info_show(vis, "Failed to change shell");
 	} else {
@@ -305,29 +305,29 @@ vis_option_set(Vis *vis, Win *win, VisOption *option, VisValue value, bool toggl
 	}break;
 
 	case OPTION_SAVE_METHOD:{
-		if (strcmp("auto", value.u.string) == 0) {
+		if (str8_equal(str8("auto"), value.u.string)) {
 			win->file->save_method = TEXT_SAVE_AUTO;
-		} else if (strcmp("atomic", value.u.string) == 0) {
+		} else if (str8_equal(str8("atomic"), value.u.string)) {
 			win->file->save_method = TEXT_SAVE_ATOMIC;
-		} else if (strcmp("inplace", value.u.string) == 0) {
+		} else if (str8_equal(str8("inplace"), value.u.string)) {
 			win->file->save_method = TEXT_SAVE_INPLACE;
 		} else {
-			vis_info_show(vis, "Invalid save method `%s', expected "
-			              "'auto', 'atomic' or 'inplace'", value.u.string);
+			vis_info_show(vis, "Invalid save method `%.*s', expected 'auto', 'atomic' or 'inplace'",
+			              (int)value.u.string.length, value.u.string.data);
 			return false;
 		}
 	}break;
 
 	case OPTION_LOAD_METHOD:{
-		if (strcmp("auto", value.u.string) == 0) {
+		if (str8_equal(str8("auto"), value.u.string)) {
 			vis->load_method = TEXT_LOAD_AUTO;
-		} else if (strcmp("read", value.u.string) == 0) {
+		} else if (str8_equal(str8("read"), value.u.string)) {
 			vis->load_method = TEXT_LOAD_READ;
-		} else if (strcmp("mmap", value.u.string) == 0) {
+		} else if (str8_equal(str8("mmap"), value.u.string)) {
 			vis->load_method = TEXT_LOAD_MMAP;
 		} else {
-			vis_info_show(vis, "Invalid load method `%s', expected "
-			              "'auto', 'read' or 'mmap'", value.u.string);
+			vis_info_show(vis, "Invalid load method `%.*s', expected 'auto', 'read' or 'mmap'",
+			              (int)value.u.string.length, value.u.string.data);
 			result = false;
 		}
 	}break;
@@ -335,12 +335,13 @@ vis_option_set(Vis *vis, Win *win, VisOption *option, VisValue value, bool toggl
 	case OPTION_LAYOUT:{
 		enum UiLayout layout;
 		if (value.kind == VisValueKind_String) {
-			if (strcmp("h", value.u.string) == 0) {
+			if (value.u.string.length > 0 && value.u.string.data[0] == 'h') {
 				layout = UI_LAYOUT_HORIZONTAL;
-			} else if (strcmp("v", value.u.string) == 0) {
+			} else if (value.u.string.length > 0 && value.u.string.data[0] == 'v') {
 				layout = UI_LAYOUT_VERTICAL;
 			} else {
-				vis_info_show(vis, "Invalid layout `%s', expected 'h' or 'v'", value.u.string);
+				vis_info_show(vis, "Invalid layout `%.*s', expected 'h' or 'v'",
+				              (int)value.u.string.length, value.u.string.data);
 				result = false;
 			}
 		} else {
@@ -384,18 +385,18 @@ vis_option_get(Vis *vis, Win *win, VisOption *option)
 		}
 
 		switch (option_index) {
-		case OPTION_AUTOINDENT:{       result.u.boolean = vis->autoindent;        }break;
-		case OPTION_BREAKAT:{          result.u.string  = win->view.breakat;      }break;
-		case OPTION_CHANGE_256COLORS:{ result.u.boolean = vis->change_colors;     }break;
-		case OPTION_COLOR_COLUMN:{     result.u.integer = win->view.colorcolumn;  }break;
-		case OPTION_ESCDELAY:{         result.u.integer = vis->escape_delay;      }break;
-		case OPTION_EXPANDTAB:{        result.u.boolean = win->expandtab;         }break;
-		case OPTION_IGNORECASE:{       result.u.boolean = vis->ignorecase;        }break;
-		case OPTION_LAYOUT:{           result.u.integer = vis->ui.layout;         }break;
-		case OPTION_NUMBER_WIDTH:{     result.u.integer = win->min_sidebar_width; }break;
-		case OPTION_SHELL:{            result.u.string  = vis->shell;             }break;
-		case OPTION_TABWIDTH:{         result.u.integer = win->view.tabwidth;     }break;
-		case OPTION_WRAP_COLUMN:{      result.u.integer = win->view.wrapcolumn;   }break;
+		case OPTION_AUTOINDENT:{       result.u.boolean = vis->autoindent;                    }break;
+		case OPTION_BREAKAT:{          result.u.string  = str8_from_c_str(win->view.breakat); }break;
+		case OPTION_CHANGE_256COLORS:{ result.u.boolean = vis->change_colors;                 }break;
+		case OPTION_COLOR_COLUMN:{     result.u.integer = win->view.colorcolumn;              }break;
+		case OPTION_ESCDELAY:{         result.u.integer = vis->escape_delay;                  }break;
+		case OPTION_EXPANDTAB:{        result.u.boolean = win->expandtab;                     }break;
+		case OPTION_IGNORECASE:{       result.u.boolean = vis->ignorecase;                    }break;
+		case OPTION_LAYOUT:{           result.u.integer = vis->ui.layout;                     }break;
+		case OPTION_NUMBER_WIDTH:{     result.u.integer = win->min_sidebar_width;             }break;
+		case OPTION_SHELL:{            result.u.string  = str8_from_c_str(vis->shell);        }break;
+		case OPTION_TABWIDTH:{         result.u.integer = win->view.tabwidth;                 }break;
+		case OPTION_WRAP_COLUMN:{      result.u.integer = win->view.wrapcolumn;               }break;
 
 		case OPTION_CURSOR_LINE:
 		case OPTION_NUMBER:
@@ -421,17 +422,17 @@ vis_option_get(Vis *vis, Win *win, VisOption *option)
 
 		case OPTION_SAVE_METHOD:{
 			switch (win->file->save_method) {
-			case TEXT_SAVE_AUTO:{   result.u.string = "auto";   }break;
-			case TEXT_SAVE_ATOMIC:{ result.u.string = "atomic"; }break;
-			case TEXT_SAVE_INPLACE:{result.u.string = "inplace";}break;
+			case TEXT_SAVE_AUTO:{   result.u.string = str8("auto");   }break;
+			case TEXT_SAVE_ATOMIC:{ result.u.string = str8("atomic"); }break;
+			case TEXT_SAVE_INPLACE:{result.u.string = str8("inplace");}break;
 			}
 		}break;
 
 		case OPTION_LOAD_METHOD:{
 			switch (vis->load_method) {
-			case TEXT_LOAD_AUTO:{result.u.string = "auto";}break;
-			case TEXT_LOAD_READ:{result.u.string = "read";}break;
-			case TEXT_LOAD_MMAP:{result.u.string = "mmap";}break;
+			case TEXT_LOAD_AUTO:{result.u.string = str8("auto");}break;
+			case TEXT_LOAD_READ:{result.u.string = str8("read");}break;
+			case TEXT_LOAD_MMAP:{result.u.string = str8("mmap");}break;
 			}
 		}break;
 
