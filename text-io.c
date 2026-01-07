@@ -472,13 +472,15 @@ bool text_save_commit(TextSave *ctx) {
 
 void text_mark_current_revision(Text *txt) { text_saved(txt, 0); }
 
-ssize_t text_save_write_range(TextSave *ctx, const Filerange *range) {
+ssize_t text_save_write_range(TextSave *ctx, Filerange range)
+{
 	return text_write_range(ctx->txt, range, ctx->fd);
 }
 
-ssize_t text_write_range(const Text *txt, const Filerange *range, int fd) {
+ssize_t text_write_range(const Text *txt, Filerange range, int fd)
+{
 	size_t size = text_range_size(range), rem = size;
-	for (Iterator it = text_iterator_get(txt, range->start);
+	for (Iterator it = text_iterator_get(txt, range.start);
 	     rem > 0 && text_iterator_valid(&it);
 	     text_iterator_next(&it)) {
 		size_t prem = it.end - it.text;

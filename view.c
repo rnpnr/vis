@@ -1226,46 +1226,49 @@ Filerange view_selections_get(Selection *s) {
 	size_t anchor = text_mark_get(txt, s->anchor);
 	size_t cursor = text_mark_get(txt, s->cursor);
 	Filerange sel = text_range_new(anchor, cursor);
-	if (text_range_valid(&sel))
+	if (text_range_valid(sel))
 		sel.end = text_char_next(txt, sel.end);
 	return sel;
 }
 
-bool view_selections_set(Selection *s, const Filerange *r) {
+bool view_selections_set(Selection *s, Filerange r)
+{
 	Text *txt = s->view->text;
 	size_t max = text_size(txt);
-	if (!text_range_valid(r) || r->start >= max)
+	if (!text_range_valid(r) || r.start >= max)
 		return false;
 	size_t anchor = text_mark_get(txt, s->anchor);
 	size_t cursor = text_mark_get(txt, s->cursor);
 	bool left_extending = anchor != EPOS && anchor > cursor;
-	size_t end = r->end > max ? max : r->end;
-	if (r->start != end)
+	size_t end = r.end > max ? max : r.end;
+	if (r.start != end)
 		end = text_char_prev(txt, end);
-	view_cursors_to(s, left_extending ? r->start : end);
-	s->anchor = text_mark_set(txt, left_extending ? end : r->start);
+	view_cursors_to(s, left_extending ? r.start : end);
+	s->anchor = text_mark_set(txt, left_extending ? end : r.start);
 	return true;
 }
 
-Filerange view_regions_restore(View *view, SelectionRegion *s) {
+Filerange view_regions_restore(View *view, SelectionRegion s)
+{
 	Text *txt = view->text;
-	size_t anchor = text_mark_get(txt, s->anchor);
-	size_t cursor = text_mark_get(txt, s->cursor);
+	size_t anchor = text_mark_get(txt, s.anchor);
+	size_t cursor = text_mark_get(txt, s.cursor);
 	Filerange sel = text_range_new(anchor, cursor);
-	if (text_range_valid(&sel))
+	if (text_range_valid(sel))
 		sel.end = text_char_next(txt, sel.end);
 	return sel;
 }
 
-bool view_regions_save(View *view, Filerange *r, SelectionRegion *s) {
+bool view_regions_save(View *view, Filerange r, SelectionRegion *s)
+{
 	Text *txt = view->text;
 	size_t max = text_size(txt);
-	if (!text_range_valid(r) || r->start >= max)
+	if (!text_range_valid(r) || r.start >= max)
 		return false;
-	size_t end = r->end > max ? max : r->end;
-	if (r->start != end)
+	size_t end = r.end > max ? max : r.end;
+	if (r.start != end)
 		end = text_char_prev(txt, end);
-	s->anchor = text_mark_set(txt, r->start);
+	s->anchor = text_mark_set(txt, r.start);
 	s->cursor = text_mark_set(txt, end);
 	return true;
 }
@@ -1274,7 +1277,7 @@ void view_selections_set_all(View *view, FilerangeList ranges, bool anchored)
 {
 	VisDACount i = 0;
 	for (Selection *s = view->selections; s; s = s->next) {
-		if (i++ >= ranges.count || !view_selections_set(s, ranges.data + i - 1)) {
+		if (i++ >= ranges.count || !view_selections_set(s, ranges.data[i - 1])) {
 			for (Selection *next; s; s = next) {
 				next = view_selections_next(s);
 				if (i == 1 && s == view->selection)
@@ -1286,9 +1289,9 @@ void view_selections_set_all(View *view, FilerangeList ranges, bool anchored)
 		}
 		s->anchored = anchored;
 	}
-	while (i < ranges.count) {
-		Filerange *r = ranges.data + i++;
-		Selection *s = view_selections_new_force(view, r->start);
+	for (; i < ranges.count; i++) {
+		Filerange r  = ranges.data[i];
+		Selection *s = view_selections_new_force(view, r.start);
 		if (!s || !view_selections_set(s, r))
 			break;
 		s->anchored = anchored;
@@ -1302,7 +1305,7 @@ FilerangeList view_selections_get_all(Vis *vis, View *view)
 	da_reserve(vis, &result, view->selection_count);
 	for (Selection *s = view->selections; s; s = s->next) {
 		Filerange r = view_selections_get(s);
-		if (text_range_valid(&r))
+		if (text_range_valid(r))
 			*da_push(vis, &result) = r;
 	}
 	return result;
@@ -1314,20 +1317,20 @@ void view_selections_normalize(View *view) {
 	for (Selection *s = view->selections, *next; s; s = next) {
 		next = s->next;
 		Filerange range = view_selections_get(s);
-		if (!text_range_valid(&range)) {
+		if (!text_range_valid(range)) {
 			view_selections_dispose(s);
-		} else if (prev && text_range_overlap(&range_prev, &range)) {
-			range_prev = text_range_union(&range_prev, &range);
+		} else if (prev && text_range_overlap(range_prev, range)) {
+			range_prev = text_range_union(range_prev, range);
 			view_selections_dispose(s);
 		} else {
 			if (prev)
-				view_selections_set(prev, &range_prev);
+				view_selections_set(prev, range_prev);
 			range_prev = range;
 			prev = s;
 		}
 	}
 	if (prev)
-		view_selections_set(prev, &range_prev);
+		view_selections_set(prev, range_prev);
 }
 
 void win_style(Win *win, enum UiStyle style, size_t start, size_t end, bool keep_non_default) {

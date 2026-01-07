@@ -97,8 +97,8 @@ static bool text_save_method(Text *txt, const char *filename, enum TextSaveMetho
 	if (!text_save_begin(&ctx))
 		return false;
 	Filerange range = (Filerange){ .start = 0, .end = text_size(txt) };
-	ssize_t written = text_save_write_range(&ctx, &range);
-	if (written == -1 || (size_t)written != text_range_size(&range)) {
+	ssize_t written = text_save_write_range(&ctx, range);
+	if (written == -1 || (size_t)written != text_range_size(range)) {
 		text_save_cancel(&ctx);
 		return false;
 	}

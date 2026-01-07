@@ -230,7 +230,7 @@ static void window_draw_cursorline(Win *win) {
 static void window_draw_selection(Win *win, Selection *cur) {
 	View *view = &win->view;
 	Filerange sel = view_selections_get(cur);
-	if (!text_range_valid(&sel))
+	if (!text_range_valid(sel))
 		return;
 	Line *start_line; int start_col;
 	Line *end_line; int end_col;
@@ -260,7 +260,7 @@ static void window_draw_cursor_matching(Win *win, Selection *cur) {
 	Line *line_match; int col_match;
 	size_t pos = view_cursors_pos(cur);
 	Filerange limits = VIEW_VIEWPORT_GET(win->view);
-	size_t pos_match = text_bracket_match_symbol(win->file->text, pos, "(){}[]\"'`", &limits);
+	size_t pos_match = text_bracket_match_symbol(win->file->text, pos, "(){}[]\"'`", limits);
 	if (pos == pos_match)
 		return;
 	if (!view_coord_get(&win->view, pos_match, &line_match, NULL, &col_match))
@@ -805,7 +805,7 @@ void vis_do(Vis *vis) {
 					r = a->textobj->vis(vis, txt, pos);
 				else if (a->textobj->user)
 					r = a->textobj->user(vis, win, a->textobj->data, pos);
-				if (!text_range_valid(&r))
+				if (!text_range_valid(r))
 					break;
 				if (a->textobj->type & TEXTOBJECT_DELIMITED_OUTER) {
 					r.start--;
@@ -816,7 +816,7 @@ void vis_do(Vis *vis) {
 				}
 
 				if (vis->mode->visual || (i > 0 && !(a->textobj->type & TEXTOBJECT_NON_CONTIGUOUS)))
-					c.range = text_range_union(&c.range, &r);
+					c.range = text_range_union(c.range, r);
 				else
 					c.range = r;
 
@@ -834,14 +834,14 @@ void vis_do(Vis *vis) {
 			}
 		} else if (vis->mode->visual) {
 			c.range = view_selections_get(sel);
-			if (!text_range_valid(&c.range))
+			if (!text_range_valid(c.range))
 				c.range.start = c.range.end = pos;
 		}
 
 		if (linewise && vis->mode != &vis_modes[VIS_MODE_VISUAL])
-			c.range = text_range_linewise(txt, &c.range);
+			c.range = text_range_linewise(txt, c.range);
 		if (vis->mode->visual) {
-			view_selections_set(sel, &c.range);
+			view_selections_set(sel, c.range);
 			sel->anchored = true;
 		}
 
@@ -1559,7 +1559,7 @@ Regex *vis_regex(Vis *vis, const char *pattern) {
 	return regex;
 }
 
-static int _vis_pipe(Vis *vis, File *file, Filerange *range, const char* buf, const char *argv[],
+static int _vis_pipe(Vis *vis, File *file, Filerange range, const char* buf, const char *argv[],
 	void *stdout_context, ssize_t (*read_stdout)(void *stdout_context, char *data, size_t len),
 	void *stderr_context, ssize_t (*read_stderr)(void *stderr_context, char *data, size_t len),
 	bool fullscreen) {
@@ -1568,8 +1568,8 @@ static int _vis_pipe(Vis *vis, File *file, Filerange *range, const char* buf, co
 	 * through the external command. */
 	Text *text = file != NULL ? file->text : NULL;
 	int pin[2], pout[2], perr[2], status = -1;
-	bool interactive = buf == NULL && (range == NULL || !text_range_valid(range));
-	Filerange rout = (interactive  || buf != NULL) ? text_range_new(0, 0) : *range;
+	bool interactive = buf == NULL && !text_range_valid(range);
+	Filerange rout = (interactive  || buf != NULL) ? text_range_new(0, 0) : range;
 
 	if (pipe(pin) == -1)
 		return -1;
@@ -1620,7 +1620,7 @@ static int _vis_pipe(Vis *vis, File *file, Filerange *range, const char* buf, co
 			 * closed. Some programs behave differently when used
 			 * in a pipeline.
 			 */
-			if (range && text_range_size(range) == 0)
+			if (text_range_valid(range) && text_range_size(range) == 0)
 				dup2(null, STDIN_FILENO);
 			else
 				dup2(pin[0], STDIN_FILENO);
@@ -1705,13 +1705,13 @@ static int _vis_pipe(Vis *vis, File *file, Filerange *range, const char* buf, co
 		if (pin[1] != -1 && FD_ISSET(pin[1], &wfds)) {
 			ssize_t written = 0;
 			Filerange junk = rout;
-			if (text_range_size(&rout)) {
+			if (text_range_size(rout)) {
 				if (junk.end > junk.start + PIPE_BUF)
 					junk.end = junk.start + PIPE_BUF;
-				written = text_write_range(text, &junk, pin[1]);
+				written = text_write_range(text, junk, pin[1]);
 				if (written > 0) {
 					rout.start += written;
-					if (text_range_size(&rout) == 0) {
+					if (text_range_size(rout) == 0) {
 						close(pin[1]);
 						pin[1] = -1;
 					}
@@ -1805,7 +1805,7 @@ err:
 	return -1;
 }
 
-int vis_pipe(Vis *vis, File *file, Filerange *range, const char *argv[],
+int vis_pipe(Vis *vis, File *file, Filerange range, const char *argv[],
 	void *stdout_context, ssize_t (*read_stdout)(void *stdout_context, char *data, size_t len),
 	void *stderr_context, ssize_t (*read_stderr)(void *stderr_context, char *data, size_t len),
 	bool fullscreen) {
@@ -1815,11 +1815,15 @@ int vis_pipe(Vis *vis, File *file, Filerange *range, const char *argv[],
 int vis_pipe_buf(Vis *vis, const char* buf, const char *argv[],
 	void *stdout_context, ssize_t (*read_stdout)(void *stdout_context, char *data, size_t len),
 	void *stderr_context, ssize_t (*read_stderr)(void *stderr_context, char *data, size_t len),
-	bool fullscreen) {
-	return _vis_pipe(vis, NULL, NULL, buf, argv, stdout_context, read_stdout, stderr_context, read_stderr, fullscreen);
+	bool fullscreen)
+{
+	return _vis_pipe(vis, 0, text_range_empty(), buf, argv, stdout_context, read_stdout,
+	                 stderr_context, read_stderr, fullscreen);
 }
 
-static int _vis_pipe_collect(Vis *vis, File *file, Filerange *range, const char* buf, const char *argv[], char **out, char **err, bool fullscreen) {
+static int _vis_pipe_collect(Vis *vis, File *file, Filerange range, const char* buf,
+                             const char *argv[],char **out, char **err, bool fullscreen)
+{
 	Buffer bufout = {0}, buferr = {0};
 	int status = _vis_pipe(vis, file, range, buf, argv,
 	                      &bufout, out ? read_into_buffer : NULL,
@@ -1832,12 +1836,14 @@ static int _vis_pipe_collect(Vis *vis, File *file, Filerange *range, const char*
 	return status;
 }
 
-int vis_pipe_collect(Vis *vis, File *file, Filerange *range, const char *argv[], char **out, char **err, bool fullscreen) {
+int vis_pipe_collect(Vis *vis, File *file, Filerange range, const char *argv[], char **out, char **err, bool fullscreen)
+{
 	return _vis_pipe_collect(vis, file, range, NULL, argv, out, err, fullscreen);
 }
 
-int vis_pipe_buf_collect(Vis *vis, const char* buf, const char *argv[], char **out, char **err, bool fullscreen) {
-	return _vis_pipe_collect(vis, NULL, NULL, buf, argv, out, err, fullscreen);
+int vis_pipe_buf_collect(Vis *vis, const char* buf, const char *argv[], char **out, char **err, bool fullscreen)
+{
+	return _vis_pipe_collect(vis, 0, text_range_empty(), buf, argv, out, err, fullscreen);
 }
 
 bool vis_cmd(Vis *vis, const char *cmdline) {

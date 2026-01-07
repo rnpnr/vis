@@ -26,9 +26,9 @@ static void prompt_hide(Win *win) {
 		text_insert(win->vis, txt, size, "\n", 1);
 	/* remove empty entries */
 	Filerange line_range = text_object_line(txt, text_size(txt)-1);
-	char *line = text_bytes_alloc0(txt, line_range.start, text_range_size(&line_range));
+	char *line = text_bytes_alloc0(txt, line_range.start, text_range_size(line_range));
 	if (line && (line[0] == '\n' || (strchr(":/?", line[0]) && (line[1] == '\n' || line[1] == '\0'))))
-		text_delete_range(txt, &line_range);
+		text_delete_range(txt, line_range);
 	free(line);
 	vis_window_close(win);
 }
@@ -72,8 +72,8 @@ static const char *prompt_enter(Vis *vis, const char *keys, const Arg *arg) {
 		}
 		text_regex_free(regex);
 	}
-	if (text_range_valid(&range))
-		cmd = text_bytes_alloc0(txt, range.start, text_range_size(&range));
+	if (text_range_valid(range))
+		cmd = text_bytes_alloc0(txt, range.start, text_range_size(range));
 
 	if (!win || !cmd) {
 		if (!win)
@@ -96,7 +96,7 @@ static const char *prompt_enter(Vis *vis, const char *keys, const Arg *arg) {
 	if (vis_prompt_cmd(vis, cmd)) {
 		prompt_hide(prompt);
 		if (!lastline) {
-			text_delete(txt, range.start, text_range_size(&range));
+			text_delete(txt, range.start, text_range_size(range));
 			text_appendf(vis, txt, "%s\n", cmd);
 		}
 	} else {

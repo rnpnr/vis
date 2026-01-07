@@ -361,16 +361,17 @@ static KEY_ACTION_FN(ka_selections_clear)
 	return keys;
 }
 
-static Selection *ka_selection_new(View *view, Filerange *r, bool isprimary) {
+static Selection *ka_selection_new(View *view, Filerange r, bool isprimary)
+{
 	Text *txt = view->text;
-	size_t pos = text_char_prev(txt, r->end);
+	size_t pos = text_char_prev(txt, r.end);
 	Selection *s = view_selections_new(view, pos);
-	if (!s)
-		return NULL;
-	view_selections_set(s, r);
-	s->anchored = true;
-	if (isprimary)
-		view_selections_primary_set(s);
+	if (s) {
+		view_selections_set(s, r);
+		s->anchored = true;
+		if (isprimary)
+			view_selections_primary_set(s);
+	}
 	return s;
 }
 
@@ -380,14 +381,14 @@ static KEY_ACTION_FN(ka_selections_match_next)
 	View *view = vis_view(vis);
 	Selection *s = view_selections_primary_get(view);
 	Filerange sel = view_selections_get(s);
-	if (!text_range_valid(&sel))
+	if (!text_range_valid(sel))
 		return keys;
 
 	static bool match_word;
 
 	if (view->selection_count == 1) {
 		Filerange word = text_object_word(txt, view_cursors_pos(s));
-		match_word = text_range_equal(&sel, &word);
+		match_word = text_range_equal(sel, word);
 	}
 
 	Filerange (*find_next)(Text *, size_t, const char *) = text_object_word_find_next;
@@ -397,7 +398,7 @@ static KEY_ACTION_FN(ka_selections_match_next)
 		find_prev = text_object_find_prev;
 	}
 
-	char *buf = text_bytes_alloc0(txt, sel.start, text_range_size(&sel));
+	char *buf = text_bytes_alloc0(txt, sel.start, text_range_size(sel));
 	if (!buf)
 		return keys;
 
@@ -406,9 +407,9 @@ static KEY_ACTION_FN(ka_selections_match_next)
 
 	for (;;) {
 		sel = find_next(txt, sel.end, buf);
-		if (!text_range_valid(&sel))
+		if (!text_range_valid(sel))
 			break;
-		if (ka_selection_new(view, &sel, !match_all) && !match_all)
+		if (ka_selection_new(view, sel, !match_all) && !match_all)
 			goto out;
 	}
 
@@ -416,9 +417,9 @@ static KEY_ACTION_FN(ka_selections_match_next)
 
 	for (;;) {
 		sel = find_prev(txt, sel.start, buf);
-		if (!text_range_valid(&sel))
+		if (!text_range_valid(sel))
 			break;
-		if (ka_selection_new(view, &sel, !match_all) && !match_all)
+		if (ka_selection_new(view, sel, !match_all) && !match_all)
 			break;
 	}
 
@@ -592,7 +593,7 @@ static KEY_ACTION_FN(ka_selections_rotate)
 		Filerange sel = view_selections_get(s);
 		Rotate rot;
 		rot.sel = s;
-		rot.len = text_range_size(&sel);
+		rot.len = text_range_size(sel);
 		if ((rot.data = malloc(rot.len)))
 			rot.len = text_bytes_get(txt, sel.start, rot.len, rot.data);
 		else
@@ -613,14 +614,14 @@ static KEY_ACTION_FN(ka_selections_rotate)
 				Rotate *oldrot = rotations->data + i;
 				Rotate *newrot = rotations->data + j;
 				Filerange newsel = view_selections_get(newrot->sel);
-				if (!text_range_valid(&newsel))
+				if (!text_range_valid(newsel))
 					continue;
-				if (!text_delete_range(txt, &newsel))
+				if (!text_delete_range(txt, newsel))
 					continue;
 				if (!text_insert(vis, txt, newsel.start, oldrot->data, oldrot->len))
 					continue;
 				newsel.end = newsel.start + oldrot->len;
-				view_selections_set(newrot->sel, &newsel);
+				view_selections_set(newrot->sel, newsel);
 				free(oldrot->data);
 			}
 			rotations->count = 0;
@@ -640,14 +641,14 @@ static KEY_ACTION_FN(ka_selections_trim)
 	for (Selection *s = view_selections(view), *next; s; s = next) {
 		next = view_selections_next(s);
 		Filerange sel = view_selections_get(s);
-		if (!text_range_valid(&sel))
+		if (!text_range_valid(sel))
 			continue;
 		for (char b; sel.start < sel.end && text_byte_get(txt, sel.end-1, &b)
 			&& isspace((unsigned char)b); sel.end--);
 		for (char b; sel.start <= sel.end && text_byte_get(txt, sel.start, &b)
 			&& isspace((unsigned char)b); sel.start++);
 		if (sel.start < sel.end) {
-			view_selections_set(s, &sel);
+			view_selections_set(s, sel);
 		} else if (!view_selections_dispose(s)) {
 			vis_mode_switch(vis, VIS_MODE_NORMAL);
 		}
@@ -700,14 +701,14 @@ static KEY_ACTION_FN(ka_selections_union)
 	VisDACount i = 0, j = 0;
 	Filerange *r1 = a.count > 0 ? a.data : 0, *r2 = b.count > 0 ? b.data : 0, cur = text_range_empty();
 	while (r1 || r2) {
-		if (r1 && text_range_overlap(r1, &cur)) {
-			cur = text_range_union(r1, &cur);
+		if (r1 && text_range_overlap(*r1, cur)) {
+			cur = text_range_union(*r1, cur);
 			r1 = ++i < a.count ? a.data + i : 0;
-		} else if (r2 && text_range_overlap(r2, &cur)) {
-			cur = text_range_union(r2, &cur);
+		} else if (r2 && text_range_overlap(*r2, cur)) {
+			cur = text_range_union(*r2, cur);
 			r2 = ++j < b.count ? b.data + j : 0;
 		} else {
-			if (text_range_valid(&cur))
+			if (text_range_valid(cur))
 				*da_push(vis, &sel) = cur;
 			if (!r1) {
 				cur = *r2;
@@ -727,7 +728,7 @@ static KEY_ACTION_FN(ka_selections_union)
 		}
 	}
 
-	if (text_range_valid(&cur))
+	if (text_range_valid(cur))
 		*da_push(vis, &sel) = cur;
 
 	selections_set(vis, view, sel);
@@ -744,11 +745,11 @@ static FilerangeList intersect(FilerangeList a, FilerangeList b)
 {
 	FilerangeList result = {0};
 	for (VisDACount i = 0, j = 0; i < a.count && j < b.count;) {
-		Filerange *r1 = a.data + i, *r2 = b.data + j;
+		Filerange r1 = a.data[i], r2 = b.data[j];
 		if (text_range_overlap(r1, r2))
 			*da_push(vis, &result) = text_range_intersect(r1, r2);
-		if (r1->end < r2->end) i++;
-		else                   j++;
+		if (r1.end < r2.end) i++;
+		else                 j++;
 	}
 	return result;
 }

@@ -737,10 +737,11 @@ bool text_delete(Text *txt, size_t pos, size_t len) {
 	return true;
 }
 
-bool text_delete_range(Text *txt, const Filerange *r) {
+bool text_delete_range(Text *txt, Filerange r)
+{
 	if (!text_range_valid(r))
 		return false;
-	return text_delete(txt, r->start, text_range_size(r));
+	return text_delete(txt, r.start, text_range_size(r));
 }
 
 void text_free(Text *txt) {
