@@ -3,9 +3,9 @@
 static DA_COMPARE_FN(ranges_comparator)
 {
 	const Filerange *r1 = va, *r2 = vb;
-	if (!text_range_valid(r1))
-		return text_range_valid(r2) ? 1 : 0;
-	if (!text_range_valid(r2))
+	if (!text_range_valid(*r1))
+		return text_range_valid(*r2) ? 1 : 0;
+	if (!text_range_valid(*r2))
 		return -1;
 	return (r1->start < r2->start || (r1->start == r2->start && r1->end < r2->end)) ? -1 : 1;
 }
@@ -13,16 +13,16 @@ static DA_COMPARE_FN(ranges_comparator)
 void vis_mark_normalize(FilerangeList *ranges)
 {
 	for (VisDACount i = 0; i < ranges->count; i++)
-		if (text_range_size(ranges->data + i) == 0)
+		if (text_range_size(ranges->data[i]) == 0)
 			da_unordered_remove(ranges, i);
 
 	if (ranges->count) {
 		da_sort(ranges, ranges_comparator);
-		Filerange *prev = 0;
+		Filerange prev = text_range_empty();
 		for (VisDACount i = 0; i < ranges->count; i++) {
-			Filerange *r = ranges->data + i;
-			if (prev && text_range_overlap(prev, r)) {
-				*prev = text_range_union(prev, r);
+			Filerange r = ranges->data[i];
+			if (text_range_overlap(prev, r)) {
+				prev = text_range_union(prev, r);
 				da_ordered_remove(ranges, i);
 			} else {
 				prev = r;
@@ -36,7 +36,7 @@ static bool vis_mark_equal(FilerangeList a, FilerangeList b)
 {
 	bool result = a.count == b.count;
 	for (VisDACount i = 0; result && i < a.count; i++)
-		result = text_range_equal(a.data + i, b.data + i);
+		result = text_range_equal(a.data[i], b.data[i]);
 	return result;
 }
 
@@ -67,8 +67,8 @@ static FilerangeList mark_get(Vis *vis, Win *win, SelectionRegionList *mark)
 	if (mark) {
 		da_reserve(vis, &result, mark->count);
 		for (VisDACount i = 0; i < mark->count; i++) {
-			Filerange r = view_regions_restore(&win->view, mark->data + i);
-			if (text_range_valid(&r))
+			Filerange r = view_regions_restore(&win->view, mark->data[i]);
+			if (text_range_valid(r))
 				*da_push(vis, &result) = r;
 		}
 		vis_mark_normalize(&result);
@@ -87,7 +87,7 @@ static void mark_set(Vis *vis, Win *win, SelectionRegionList *mark, FilerangeLis
 		mark->count = 0;
 		for (VisDACount i = 0; i < ranges.count; i++) {
 			SelectionRegion ss;
-			if (view_regions_save(&win->view, ranges.data + i, &ss))
+			if (view_regions_save(&win->view, ranges.data[i], &ss))
 				*da_push(vis, mark) = ss;
 		}
 	}

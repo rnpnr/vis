@@ -1247,7 +1247,7 @@ VIS_EXPORT void vis_print_cmds(Vis*, Buffer *buf, const char *prefix);
  *
  * @return The exit status of the forked process.
  */
-VIS_EXPORT int vis_pipe(Vis *vis, File *file, Filerange *range, const char *argv[],
+VIS_EXPORT int vis_pipe(Vis *vis, File *file, Filerange range, const char *argv[],
 	void *stdout_context, ssize_t (*read_stdout)(void *stdout_context, char *data, size_t len),
 	void *stderr_context, ssize_t (*read_stderr)(void *stderr_context, char *data, size_t len),
 	bool fullscreen);
@@ -1267,7 +1267,7 @@ VIS_EXPORT int vis_pipe(Vis *vis, File *file, Filerange *range, const char *argv
  * by the caller.
  * @endrst
  */
-VIS_EXPORT int vis_pipe_collect(Vis *vis, File *file, Filerange *range, const char *argv[], char **out, char **err, bool fullscreen);
+VIS_EXPORT int vis_pipe_collect(Vis *vis, File *file, Filerange range, const char *argv[], char **out, char **err, bool fullscreen);
 
 /**
  * Pipe a buffer to an external process, return its exit status and capture

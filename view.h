@@ -231,7 +231,7 @@ VIS_INTERNAL Selection *view_selections_column_next(Selection *sel, int column);
 /** Get an inclusive range of the selection cover. */
 VIS_INTERNAL Filerange view_selections_get(Selection*);
 /** Set selection cover. Updates both cursor and anchor. */
-VIS_INTERNAL bool view_selections_set(Selection*, const Filerange*);
+VIS_INTERNAL bool view_selections_set(Selection*, Filerange);
 /**
  * Reduce selection to character currently covered by the cursor.
  * @rst
@@ -337,8 +337,8 @@ VIS_INTERNAL size_t view_cursor_get(View*);
  * @defgroup view_save Selection State
  * @{
  */
-VIS_INTERNAL Filerange view_regions_restore(View*, SelectionRegion*);
-VIS_INTERNAL bool view_regions_save(View*, Filerange*, SelectionRegion*);
+VIS_INTERNAL Filerange view_regions_restore(View*, SelectionRegion);
+VIS_INTERNAL bool view_regions_save(View*, Filerange, SelectionRegion*);
 /**
  * @}
  * @defgroup view_style View Styling

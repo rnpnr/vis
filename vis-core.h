@@ -317,8 +317,8 @@ VIS_INTERNAL bool register_put0(Vis*, Register*, const char *data);
 VIS_INTERNAL bool register_put(Vis*, Register*, const char *data, size_t len);
 VIS_INTERNAL bool register_slot_put(Vis*, Register*, size_t slot, const char *data, size_t len);
 
-VIS_INTERNAL bool register_put_range(Vis*, Register*, Text*, Filerange*);
-VIS_INTERNAL bool register_slot_put_range(Vis*, Register*, size_t slot, Text*, Filerange*);
+VIS_INTERNAL bool register_put_range(Vis*, Register*, Text*, Filerange);
+VIS_INTERNAL bool register_slot_put_range(Vis*, Register*, size_t slot, Text*, Filerange);
 
 VIS_INTERNAL size_t vis_register_count(Vis*, Register*);
 VIS_INTERNAL bool register_resize(Register*, size_t count);

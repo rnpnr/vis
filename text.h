@@ -150,7 +150,7 @@ VIS_INTERNAL bool text_insert(Vis *vis, Text *txt, size_t pos, const char *data,
  * @return Whether the deletion succeeded.
  */
 VIS_INTERNAL bool text_delete(Text *txt, size_t pos, size_t len);
-VIS_INTERNAL bool text_delete_range(Text *txt, const Filerange*);
+VIS_INTERNAL bool text_delete_range(Text *txt, Filerange);
 VIS_INTERNAL bool text_appendf(Vis *vis, Text *txt, const char *format, ...) __attribute__((format(printf, 3, 4)));
 /**
  * @}
@@ -375,7 +375,7 @@ VIS_INTERNAL bool text_save_begin(TextSave*);
  * Write file range.
  * @return The number of bytes written or ``-1`` in case of an error.
  */
-VIS_INTERNAL ssize_t text_save_write_range(TextSave*, const Filerange*);
+VIS_INTERNAL ssize_t text_save_write_range(TextSave*, Filerange);
 /**
  * Commit changes to disk.
  * @return Whether changes have been saved.
@@ -398,7 +398,7 @@ VIS_INTERNAL void text_save_cancel(TextSave*);
  * Write file range to file descriptor.
  * @return The number of bytes written or ``-1`` in case of an error.
  */
-VIS_INTERNAL ssize_t text_write_range(const Text*, const Filerange*, int fd);
+VIS_INTERNAL ssize_t text_write_range(const Text*, Filerange, int fd);
 /**
  * @}
  * @defgroup misc Miscellaneous
@@ -500,8 +500,8 @@ VIS_INTERNAL size_t text_line_blank_prev(Text*, size_t pos);
 VIS_INTERNAL size_t text_line_up(Text*, size_t pos);
 VIS_INTERNAL size_t text_line_down(Text*, size_t pos);
 /* functions to iterate over all line beginnings in a given range */
-VIS_INTERNAL size_t text_range_line_first(Text*, Filerange*);
-VIS_INTERNAL size_t text_range_line_next(Text*, Filerange*, size_t pos);
+VIS_INTERNAL size_t text_range_line_first(Text*, Filerange);
+VIS_INTERNAL size_t text_range_line_next(Text*, Filerange, size_t pos);
 /*
  * A longword consists of a sequence of non-blank characters, separated with
  * white space. TODO?: An empty line is also considered to be a word.
@@ -552,10 +552,12 @@ VIS_INTERNAL size_t text_block_start(Text*, size_t pos);
 VIS_INTERNAL size_t text_block_end(Text*, size_t pos);
 VIS_INTERNAL size_t text_parenthesis_start(Text*, size_t pos);
 VIS_INTERNAL size_t text_parenthesis_end(Text*, size_t pos);
+
+#define text_range_unlimited (Filerange){.start = 0, .end = EPOS - 1}
 /* search corresponding '(', ')', '{', '}', '[', ']', '>', '<', '"', ''' */
-VIS_INTERNAL size_t text_bracket_match(Text*, size_t pos, const Filerange *limits);
+VIS_INTERNAL size_t text_bracket_match(Text*, size_t pos, Filerange limits);
 /* same as above but explicitly specify symbols to match */
-VIS_INTERNAL size_t text_bracket_match_symbol(Text*, size_t pos, const char *symbols, const Filerange *limits);
+VIS_INTERNAL size_t text_bracket_match_symbol(Text*, size_t pos, const char *symbols, Filerange limits);
 
 /* search the given regex pattern in either forward or backward direction,
  * starting from pos. Does wrap around if no match was found. */
@@ -616,11 +618,11 @@ VIS_INTERNAL Filerange text_object_search_backward(Text*, size_t pos, Regex*);
 VIS_INTERNAL Filerange text_object_indentation(Text*, size_t pos);
 
 /* extend a range to cover whole lines */
-VIS_INTERNAL Filerange text_range_linewise(Text*, Filerange*);
+VIS_INTERNAL Filerange text_range_linewise(Text*, Filerange);
 /* trim leading and trailing white spaces from range */
-VIS_INTERNAL Filerange text_range_inner(Text*, Filerange*);
+VIS_INTERNAL Filerange text_range_inner(Text*, Filerange);
 /* test whether a given range covers whole lines */
-VIS_INTERNAL bool text_range_is_linewise(Text*, Filerange*);
+VIS_INTERNAL bool text_range_is_linewise(Text*, Filerange);
 
 /** @} */
 
@@ -630,23 +632,23 @@ VIS_INTERNAL bool text_range_is_linewise(Text*, Filerange*);
  */
 
 /* test whether the given range is valid (start <= end) */
-#define text_range_valid(r) ((r)->start != EPOS && (r)->end != EPOS && (r)->start <= (r)->end)
+#define text_range_valid(r) ((r).start != EPOS && (r).end != EPOS && (r).start <= (r).end)
 /* get the size of the range (end-start) or zero if invalid */
-#define text_range_size(r) (text_range_valid(r) ? (r)->end - (r)->start : 0)
+#define text_range_size(r) (text_range_valid(r) ? (r).end - (r).start : 0)
 /* create an empty / invalid range of size zero */
 #define text_range_empty() (Filerange){.start = EPOS, .end = EPOS}
 /* merge two ranges into a new one which contains both of them */
-VIS_INTERNAL Filerange text_range_union(const Filerange*, const Filerange*);
+VIS_INTERNAL Filerange text_range_union(Filerange, Filerange);
 /* get intersection of two ranges */
-VIS_INTERNAL Filerange text_range_intersect(const Filerange*, const Filerange*);
+VIS_INTERNAL Filerange text_range_intersect(Filerange, Filerange);
 /* create new range [min(a,b), max(a,b)] */
 VIS_INTERNAL Filerange text_range_new(size_t a, size_t b);
 /* test whether two ranges are equal */
-VIS_INTERNAL bool text_range_equal(const Filerange*, const Filerange*);
+VIS_INTERNAL bool text_range_equal(Filerange, Filerange);
 /* test whether two ranges overlap */
-VIS_INTERNAL bool text_range_overlap(const Filerange*, const Filerange*);
+VIS_INTERNAL bool text_range_overlap(Filerange, Filerange);
 /* test whether a given position is within a certain range */
-VIS_INTERNAL bool text_range_contains(const Filerange*, size_t pos);
+VIS_INTERNAL bool text_range_contains(Filerange, size_t pos);
 /* count the number of graphemes in data */
 VIS_INTERNAL int text_char_count(const char *data, ptrdiff_t len);
 /* get the approximate display width of data */

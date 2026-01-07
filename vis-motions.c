@@ -3,9 +3,9 @@
 static Regex *search_word(Vis *vis, Text *txt, size_t pos) {
 	char expr[512];
 	Filerange word = text_object_word(txt, pos);
-	if (!text_range_valid(&word))
+	if (!text_range_valid(word))
 		return NULL;
-	char *buf = text_bytes_alloc0(txt, word.start, text_range_size(&word));
+	char *buf = text_bytes_alloc0(txt, word.start, text_range_size(word));
 	if (!buf)
 		return NULL;
 	snprintf(expr, sizeof(expr), "[[:<:]]%s[[:>:]]", buf);
@@ -207,7 +207,7 @@ static size_t window_nop(Vis *vis, Win *win, size_t pos) {
 }
 
 static size_t bracket_match(Text *txt, size_t pos) {
-	size_t hit = text_bracket_match_symbol(txt, pos, "(){}[]<>'\"`", NULL);
+	size_t hit = text_bracket_match_symbol(txt, pos, "(){}[]<>'\"`", text_range_unlimited);
 	if (hit != pos)
 		return hit;
 	char current;

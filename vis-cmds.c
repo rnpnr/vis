@@ -406,10 +406,9 @@ static const char *file_open_dialog(Vis *vis, const char *pattern) {
 	if (!buffer_put0(&bufcmd, VIS_OPEN " ") || !buffer_append0(&bufcmd, pattern ? pattern : ""))
 		return NULL;
 
-	Filerange empty = text_range_new(0,0);
-	int status = vis_pipe(vis, vis->win->file, &empty,
-		(const char*[]){ buffer_content0(&bufcmd), NULL },
-		&bufout, read_into_buffer, &buferr, read_into_buffer, false);
+	int status = vis_pipe(vis, vis->win->file, text_range_new(0, 0),
+	                      (const char*[]){buffer_content0(&bufcmd), 0},
+	                      &bufout, read_into_buffer, &buferr, read_into_buffer, false);
 
 	if (status == 0)
 		strncpy(name, buffer_content0(&bufout), sizeof(name)-1);

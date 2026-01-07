@@ -269,17 +269,19 @@ size_t text_line_down(Text *txt, size_t pos) {
 	return text_line_width_set(txt, next, width);
 }
 
-size_t text_range_line_first(Text *txt, Filerange *r) {
+size_t text_range_line_first(Text *txt, Filerange r)
+{
 	if (!text_range_valid(r))
 		return EPOS;
-	return r->start;
+	return r.start;
 }
 
-size_t text_range_line_next(Text *txt, Filerange *r, size_t pos) {
+size_t text_range_line_next(Text *txt, Filerange r, size_t pos)
+{
 	if (!text_range_contains(r, pos))
 		return EPOS;
 	size_t newpos = text_line_next(txt, pos);
-	return newpos != pos && newpos < r->end ? newpos : EPOS;
+	return newpos != pos && newpos < r.end ? newpos : EPOS;
 }
 
 size_t text_customword_start_next(Text *txt, size_t pos, int (*isboundary)(int)) {
@@ -447,29 +449,31 @@ size_t text_line_blank_prev(Text *txt, size_t pos) {
 
 size_t text_block_start(Text *txt, size_t pos) {
 	Filerange r = text_object_curly_bracket(txt, pos-1);
-	return text_range_valid(&r) ? r.start-1 : pos;
+	return text_range_valid(r) ? r.start - 1 : pos;
 }
 
 size_t text_block_end(Text *txt, size_t pos) {
 	Filerange r = text_object_curly_bracket(txt, pos+1);
-	return text_range_valid(&r) ? r.end : pos;
+	return text_range_valid(r) ? r.end : pos;
 }
 
 size_t text_parenthesis_start(Text *txt, size_t pos) {
 	Filerange r = text_object_parenthesis(txt, pos-1);
-	return text_range_valid(&r) ? r.start-1 : pos;
+	return text_range_valid(r) ? r.start-1 : pos;
 }
 
 size_t text_parenthesis_end(Text *txt, size_t pos) {
 	Filerange r = text_object_parenthesis(txt, pos+1);
-	return text_range_valid(&r) ? r.end : pos;
+	return text_range_valid(r) ? r.end : pos;
 }
 
-size_t text_bracket_match(Text *txt, size_t pos, const Filerange *limits) {
-	return text_bracket_match_symbol(txt, pos, NULL, limits);
+size_t text_bracket_match(Text *txt, size_t pos, Filerange limits)
+{
+	return text_bracket_match_symbol(txt, pos, 0, limits);
 }
 
-static size_t match_symbol(Text *txt, size_t pos, char search, int direction, const Filerange *limits) {
+static size_t match_symbol(Text *txt, size_t pos, char search, int direction, Filerange limits)
+{
 	char c, current;
 	int count = 1;
 	bool instring = false;
@@ -478,7 +482,7 @@ static size_t match_symbol(Text *txt, size_t pos, char search, int direction, co
 		return pos;
 	if (direction >= 0) { /* forward search */
 		while (text_iterator_byte_next(&it, &c)) {
-			if (limits && it.pos >= limits->end)
+			if (it.pos >= limits.end)
 				break;
 			if (c != current && c == '"')
 				instring = !instring;
@@ -491,7 +495,7 @@ static size_t match_symbol(Text *txt, size_t pos, char search, int direction, co
 		}
 	} else { /* backwards */
 		while (text_iterator_byte_prev(&it, &c)) {
-			if (limits && it.pos < limits->start)
+			if (it.pos < limits.start)
 				break;
 			if (c != current && c == '"')
 				instring = !instring;
@@ -507,7 +511,8 @@ static size_t match_symbol(Text *txt, size_t pos, char search, int direction, co
 	return pos; /* no match found */
 }
 
-size_t text_bracket_match_symbol(Text *txt, size_t pos, const char *symbols, const Filerange *limits) {
+size_t text_bracket_match_symbol(Text *txt, size_t pos, const char *symbols, Filerange limits)
+{
 	int direction;
 	char search, current, c;
 	Iterator it = text_iterator_get(txt, pos);

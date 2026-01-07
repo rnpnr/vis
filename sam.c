@@ -448,29 +448,30 @@ static void sam_change_free(SamChange *c) {
 	free(c);
 }
 
-static SamChange *sam_change_new(Transcript *t, enum SamChangeType type, Filerange *range, Win *win, Selection *sel) {
+static SamChange *sam_change_new(Transcript *t, enum SamChangeType type, Filerange range, Win *win, Selection *sel)
+{
 	if (!text_range_valid(range))
 		return NULL;
 	SamChange **prev, *next;
-	if (t->latest && t->latest->range.end <= range->start) {
+	if (t->latest && t->latest->range.end <= range.start) {
 		prev = &t->latest->next;
 		next = t->latest->next;
 	} else {
 		prev = &t->changes;
 		next = t->changes;
 	}
-	while (next && next->range.end <= range->start) {
+	while (next && next->range.end <= range.start) {
 		prev = &next->next;
 		next = next->next;
 	}
-	if (next && next->range.start < range->end) {
+	if (next && next->range.start < range.end) {
 		t->error = SAM_ERR_CONFLICT;
 		return NULL;
 	}
 	SamChange *new = calloc(1, sizeof *new);
 	if (new) {
 		new->type = type;
-		new->range = *range;
+		new->range = range;
 		new->sel = sel;
 		new->win = win;
 		new->next = next;
@@ -499,7 +500,7 @@ static void sam_transcript_free(Transcript *t) {
 
 static bool sam_insert(Win *win, Selection *sel, size_t pos, const char *data, size_t len, int count) {
 	Filerange range = text_range_new(pos, pos);
-	SamChange *c = sam_change_new(&win->file->transcript, TRANSCRIPT_INSERT, &range, win, sel);
+	SamChange *c = sam_change_new(&win->file->transcript, TRANSCRIPT_INSERT, range, win, sel);
 	if (c) {
 		c->data = data;
 		c->len = len;
@@ -508,11 +509,13 @@ static bool sam_insert(Win *win, Selection *sel, size_t pos, const char *data, s
 	return c;
 }
 
-static bool sam_delete(Win *win, Selection *sel, Filerange *range) {
+static bool sam_delete(Win *win, Selection *sel, Filerange range)
+{
 	return sam_change_new(&win->file->transcript, TRANSCRIPT_DELETE, range, win, sel);
 }
 
-static bool sam_change(Win *win, Selection *sel, Filerange *range, const char *data, size_t len, int count) {
+static bool sam_change(Win *win, Selection *sel, Filerange range, const char *data, size_t len, int count)
+{
 	SamChange *c = sam_change_new(&win->file->transcript, TRANSCRIPT_CHANGE, range, win, sel);
 	if (c) {
 		c->data = data;
@@ -1101,12 +1104,12 @@ static Filerange address_evaluate(Address *addr, File *file, Selection *sel, Fil
 				right = text_range_new(size, size);
 			}
 			/* TODO: enforce strict ordering? */
-			return text_range_union(&left, &right);
+			return text_range_union(left, right);
 		}
 		case '%':
 			return text_range_new(0, text_size(file->text));
 		}
-		if (text_range_valid(&ret))
+		if (text_range_valid(ret))
 			range = &ret;
 	} while ((addr = addr->right));
 
@@ -1232,8 +1235,8 @@ enum SamError sam_cmd(Vis *vis, const char *s) {
 			c->range.start += delta;
 			c->range.end += delta;
 			if (c->type & TRANSCRIPT_DELETE) {
-				text_delete_range(file->text, &c->range);
-				delta -= text_range_size(&c->range);
+				text_delete_range(file->text, c->range);
+				delta -= text_range_size(c->range);
 				if (c->sel && c->type == TRANSCRIPT_DELETE) {
 					if (visual)
 						view_selections_dispose_force(c->sel);
@@ -1250,7 +1253,7 @@ enum SamError sam_cmd(Vis *vis, const char *s) {
 				                             c->range.start + c->len * c->count);
 				if (c->sel) {
 					if (visual) {
-						view_selections_set(c->sel, &r);
+						view_selections_set(c->sel, r);
 						c->sel->anchored = true;
 					} else {
 						if (memchr(c->data, '\n', c->len))
@@ -1261,7 +1264,7 @@ enum SamError sam_cmd(Vis *vis, const char *s) {
 				} else if (visual) {
 					Selection *sel = view_selections_new(&c->win->view, r.start);
 					if (sel) {
-						view_selections_set(sel, &r);
+						view_selections_set(sel, r);
 						sel->anchored = true;
 					}
 				}
@@ -1353,14 +1356,14 @@ static bool cmd_change(Vis *vis, Win *win, Command *cmd, const char *argv[], Sel
 	if (!win)
 		return false;
 	Buffer buf = text(vis, argv[1]);
-	bool ret = sam_change(win, sel, range, buf.data, buf.len, cmd->count.start);
+	bool ret = sam_change(win, sel, *range, buf.data, buf.len, cmd->count.start);
 	if (!ret)
 		free(buf.data);
 	return ret;
 }
 
 static bool cmd_delete(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	return win && sam_delete(win, sel, range);
+	return win && sam_delete(win, sel, *range);
 }
 
 static bool cmd_guard(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
@@ -1368,7 +1371,7 @@ static bool cmd_guard(Vis *vis, Win *win, Command *cmd, const char *argv[], Sele
 		return false;
 	bool match = false;
 	RegexMatch captures[1];
-	size_t len = text_range_size(range);
+	size_t len = text_range_size(*range);
 	if (!cmd->regex)
 		match = true;
 	else if (!text_search_range_forward(win->file->text, range->start, len, cmd->regex, 1, captures, 0))
@@ -1428,11 +1431,11 @@ static int extract(Vis *vis, Win *win, Command *cmd, const char *argv[], Selecti
 				start = end + 1;
 			}
 
-			if (text_range_valid(&r)) {
+			if (text_range_valid(r)) {
 				if (found) {
 					for (size_t i = 0; i < nsub; i++) {
 						Register *reg = &vis->registers[VIS_REG_AMPERSAND+i];
-						register_put_range(vis, reg, txt, &match[i]);
+						register_put_range(vis, reg, txt, match[i]);
 					}
 					last_start = match[0].end;
 				} else {
@@ -1451,7 +1454,7 @@ static int extract(Vis *vis, Win *win, Command *cmd, const char *argv[], Selecti
 			if (next > end)
 				next = end;
 			Filerange r = text_range_new(start, next);
-			if (start == next || !text_range_valid(&r))
+			if (start == next || !text_range_valid(r))
 				break;
 			if (simulate)
 				count++;
@@ -1467,7 +1470,7 @@ static int extract(Vis *vis, Win *win, Command *cmd, const char *argv[], Selecti
 }
 
 static bool cmd_extract(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	if (!win || !text_range_valid(range))
+	if (!win || !text_range_valid(*range))
 		return false;
 	int matches = 0;
 	if (count_negative(cmd->cmd))
@@ -1524,7 +1527,7 @@ static bool cmd_select(Vis *vis, Win *win, Command *cmd, const char *argv[], Sel
 		} else {
 			r = text_range_new(pos, text_char_next(txt, pos));
 		}
-		if (!text_range_valid(&r))
+		if (!text_range_valid(r))
 			r = text_range_new(0, 0);
 		ret &= sam_execute(vis, win, cmd->cmd, s, &r);
 		if (cmd->cmd->cmddef->flags & CMD_ONCE)
@@ -1537,14 +1540,14 @@ static bool cmd_select(Vis *vis, Win *win, Command *cmd, const char *argv[], Sel
 }
 
 static bool cmd_print(Vis *vis, Win *win, Command *cmd, const char *argv[], Selection *sel, Filerange *range) {
-	if (!win || !text_range_valid(range))
+	if (!win || !text_range_valid(*range))
 		return false;
 	if (!sel)
 		sel = view_selections_new_force(&win->view, range->start);
 	if (!sel)
 		return false;
 	if (range->start != range->end) {
-		view_selections_set(sel, range);
+		view_selections_set(sel, *range);
 		sel->anchored = true;
 	} else {
 		view_cursors_to(sel, range->start);
@@ -1589,7 +1592,7 @@ static bool cmd_write(Vis *vis, Win *win, Command *cmd, const char *argv[], Sele
 
 	Text *text = file->text;
 	Filerange range_all = text_range_new(0, text_size(text));
-	bool write_entire_file = text_range_equal(r, &range_all);
+	bool write_entire_file = text_range_equal(*r, range_all);
 
 	const char *filename = argv[1];
 	if (!filename)
@@ -1616,8 +1619,8 @@ static bool cmd_write(Vis *vis, Win *win, Command *cmd, const char *argv[], Sele
 
 		for (Selection *s = view_selections(&win->view); s; s = view_selections_next(s)) {
 			Filerange range = visual ? view_selections_get(s) : *r;
-			ssize_t written = text_write_range(text, &range, file->fd);
-			if (written == -1 || (size_t)written != text_range_size(&range)) {
+			ssize_t written = text_write_range(text, range, file->fd);
+			if (written == -1 || (size_t)written != text_range_size(range)) {
 				vis_info_show(vis, "Can not write to stdout");
 				return false;
 			}
@@ -1696,8 +1699,8 @@ static bool cmd_write(Vis *vis, Win *win, Command *cmd, const char *argv[], Sele
 
 		for (Selection *s = view_selections(&win->view); s; s = view_selections_next(s)) {
 			Filerange range = visual ? view_selections_get(s) : *r;
-			ssize_t written = text_save_write_range(&ctx, &range);
-			failure = (written == -1 || (size_t)written != text_range_size(&range));
+			ssize_t written = text_save_write_range(&ctx, range);
+			failure = (written == -1 || (size_t)written != text_range_size(range));
 			if (failure || !visual)
 				break;
 		}
@@ -1736,7 +1739,7 @@ static bool cmd_filter(Vis *vis, Win *win, Command *cmd, const char *argv[], Sel
 
 	Buffer bufout = {0}, buferr = {0};
 
-	int status = vis_pipe(vis, win->file, range, &argv[1], &bufout, read_into_buffer, &buferr,
+	int status = vis_pipe(vis, win->file, *range, argv + 1, &bufout, read_into_buffer, &buferr,
 	                      read_into_buffer, false);
 
 	if (vis->interrupted) {
@@ -1744,7 +1747,7 @@ static bool cmd_filter(Vis *vis, Win *win, Command *cmd, const char *argv[], Sel
 	} else if (status == 0) {
 		char *data  = bufout.data;
 		bufout.data = 0;
-		if (!sam_change(win, sel, range, data, bufout.len, 1))
+		if (!sam_change(win, sel, *range, data, bufout.len, 1))
 			free(data);
 	} else {
 		vis_info_show(vis, "Command failed %s", buffer_content0(&buferr));
@@ -1767,7 +1770,7 @@ static bool cmd_pipein(Vis *vis, Win *win, Command *cmd, const char *argv[], Sel
 	Filerange filter_range = text_range_new(range->end, range->end);
 	bool ret = cmd_filter(vis, win, cmd, argv, sel, &filter_range);
 	if (ret)
-		ret = sam_delete(win, NULL, range);
+		ret = sam_delete(win, 0, *range);
 	return ret;
 }
 
@@ -1776,7 +1779,7 @@ static bool cmd_pipeout(Vis *vis, Win *win, Command *cmd, const char *argv[], Se
 		return false;
 	Buffer buferr = {0};
 
-	int status = vis_pipe(vis, win->file, range, (const char*[]){ argv[1], NULL }, NULL, NULL,
+	int status = vis_pipe(vis, win->file, *range, (const char*[]){argv[1], 0}, 0, 0,
 	                      &buferr, read_into_buffer, false);
 
 	if (vis->interrupted)

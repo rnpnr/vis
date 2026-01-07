@@ -2,8 +2,8 @@
 
 static size_t op_delete(Vis *vis, Text *txt, OperatorContext *c) {
 	c->reg->linewise = c->linewise;
-	register_slot_put_range(vis, c->reg, c->reg_slot, txt, &c->range);
-	text_delete_range(txt, &c->range);
+	register_slot_put_range(vis, c->reg, c->reg_slot, txt, c->range);
+	text_delete_range(txt, c->range);
 	size_t pos = c->range.start;
 	if (c->linewise && pos == text_size(txt))
 		pos = text_line_begin(txt, text_line_prev(txt, pos));
@@ -11,7 +11,7 @@ static size_t op_delete(Vis *vis, Text *txt, OperatorContext *c) {
 }
 
 static size_t op_change(Vis *vis, Text *txt, OperatorContext *c) {
-	bool linewise = c->linewise || text_range_is_linewise(txt, &c->range);
+	bool linewise = c->linewise || text_range_is_linewise(txt, c->range);
 	op_delete(vis, txt, c);
 	size_t pos = c->range.start;
 	if (linewise) {
@@ -24,10 +24,10 @@ static size_t op_change(Vis *vis, Text *txt, OperatorContext *c) {
 
 static size_t op_yank(Vis *vis, Text *txt, OperatorContext *c) {
 	c->reg->linewise = c->linewise;
-	register_slot_put_range(vis, c->reg, c->reg_slot, txt, &c->range);
+	register_slot_put_range(vis, c->reg, c->reg_slot, txt, c->range);
 	if (c->reg == &vis->registers[VIS_REG_DEFAULT]) {
 		vis->registers[VIS_REG_ZERO].linewise = c->reg->linewise;
-		register_slot_put_range(vis, &vis->registers[VIS_REG_ZERO], c->reg_slot, txt, &c->range);
+		register_slot_put_range(vis, &vis->registers[VIS_REG_ZERO], c->reg_slot, txt, c->range);
 	}
 	return c->linewise ? c->pos : c->range.start;
 }
@@ -35,10 +35,10 @@ static size_t op_yank(Vis *vis, Text *txt, OperatorContext *c) {
 static size_t op_put(Vis *vis, Text *txt, OperatorContext *c) {
 	char b;
 	size_t pos = c->pos;
-	bool sel = text_range_size(&c->range) > 0;
-	bool sel_linewise = sel && text_range_is_linewise(txt, &c->range);
+	bool sel = text_range_size(c->range) > 0;
+	bool sel_linewise = sel && text_range_is_linewise(txt, c->range);
 	if (sel) {
-		text_delete_range(txt, &c->range);
+		text_delete_range(txt, c->range);
 		pos = c->pos = c->range.start;
 	}
 	switch (c->arg->i) {
@@ -155,8 +155,8 @@ static size_t op_shift_left(Vis *vis, Text *txt, OperatorContext *c) {
 }
 
 static size_t op_cursor(Vis *vis, Text *txt, OperatorContext *c) {
-	Filerange r = text_range_linewise(txt, &c->range);
-	for (size_t line = text_range_line_first(txt, &r); line != EPOS; line = text_range_line_next(txt, &r, line)) {
+	Filerange r = text_range_linewise(txt, c->range);
+	for (size_t line = text_range_line_first(txt, r); line != EPOS; line = text_range_line_next(txt, r, line)) {
 		size_t pos;
 		if (c->arg->i == VIS_OP_CURSOR_EOL)
 			pos = text_line_finish(txt, line);
@@ -172,7 +172,7 @@ static size_t op_join(Vis *vis, Text *txt, OperatorContext *c) {
 	Mark mark = EMARK;
 
 	/* if operator and range are both linewise, skip last line break */
-	if (c->linewise && text_range_is_linewise(txt, &c->range)) {
+	if (c->linewise && text_range_is_linewise(txt, c->range)) {
 		size_t line_prev = text_line_prev(txt, pos);
 		size_t line_prev_prev = text_line_prev(txt, line_prev);
 		if (line_prev_prev >= c->range.start)
