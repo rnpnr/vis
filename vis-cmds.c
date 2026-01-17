@@ -512,8 +512,15 @@ static bool cmd_quit(Vis *vis, Win *win, Command *cmd, const char *argv[], Selec
 		return false;
 	}
 	vis_window_close(win);
-	if (!has_windows(vis))
-		vis_exit(vis, argv[1] ? atoi(argv[1]) : EXIT_SUCCESS);
+	if (!has_windows(vis)) {
+		int code = EXIT_SUCCESS;
+		if (argv[1]) {
+			IntegerConversion integer = integer_conversion(str8_from_c_str((char *)argv[1]));
+			if (integer.result == IntegerConversionResult_Success)
+				code = integer.as.S64;
+		}
+		vis_exit(vis, code);
+	}
 	return true;
 }
 
@@ -524,7 +531,13 @@ static bool cmd_qall(Vis *vis, Win *win, Command *cmd, const char *argv[], Selec
 			vis_window_close(win);
 	}
 	if (!has_windows(vis)) {
-		vis_exit(vis, argv[1] ? atoi(argv[1]) : EXIT_SUCCESS);
+		int code = EXIT_SUCCESS;
+		if (argv[1]) {
+			IntegerConversion integer = integer_conversion(str8_from_c_str((char *)argv[1]));
+			if (integer.result == IntegerConversionResult_Success)
+				code = integer.as.S64;
+		}
+		vis_exit(vis, code);
 		return true;
 	} else {
 		info_unsaved_changes(vis);
