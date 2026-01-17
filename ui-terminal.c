@@ -60,46 +60,48 @@ static void ui_window_move(Win *win, int x, int y) {
 	win->y = y;
 }
 
-static bool color_fromstring(Ui *ui, CellColor *color, const char *s)
+static bool color_from_str8(Ui *ui, CellColor *color, str8 s)
 {
-	if (!s)
+	if (s.length <= 0)
 		return false;
-	if (*s == '#' && strlen(s) == 7) {
-		const char *cp;
-		unsigned char r, g, b;
-		for (cp = s + 1; isxdigit((unsigned char)*cp); cp++);
-		if (*cp != '\0')
+
+	// TODO: warn if length > 7
+	if (s.data[0] == '#' && s.length == 7) {
+		IntegerConversion integer = integer_conversion(s);
+		if (integer.result != IntegerConversionResult_Success)
 			return false;
-		int n = sscanf(s + 1, "%2hhx%2hhx%2hhx", &r, &g, &b);
-		if (n != 3)
-			return false;
+
+		uint8_t r = (integer.as.U64 >> 16u) & 0xFFu;
+		uint8_t g = (integer.as.U64 >>  8u) & 0xFFu;
+		uint8_t b = (integer.as.U64 >>  0u) & 0xFFu;
 		*color = color_rgb(ui, r, g, b);
 		return true;
-	} else if ('0' <= *s && *s <= '9') {
-		int index = atoi(s);
-		if (index <= 0 || index > 255)
+
+	} else if ('0' <= s.data[0] && s.data[0] <= '9') {
+		IntegerConversion integer = integer_conversion(s);
+		if (integer.result != IntegerConversionResult_Success || integer.as.U64 > 255)
 			return false;
-		*color = color_terminal(ui, index);
+		*color = color_terminal(ui, integer.as.U64);
 		return true;
 	}
 
 	static const struct {
-		const char *name;
+		str8      name;
 		CellColor color;
 	} color_names[] = {
-		{ "black",   CELL_COLOR_BLACK   },
-		{ "red",     CELL_COLOR_RED     },
-		{ "green",   CELL_COLOR_GREEN   },
-		{ "yellow",  CELL_COLOR_YELLOW  },
-		{ "blue",    CELL_COLOR_BLUE    },
-		{ "magenta", CELL_COLOR_MAGENTA },
-		{ "cyan",    CELL_COLOR_CYAN    },
-		{ "white",   CELL_COLOR_WHITE   },
-		{ "default", CELL_COLOR_DEFAULT },
+		{ str8("black"),   CELL_COLOR_BLACK   },
+		{ str8("red"),     CELL_COLOR_RED     },
+		{ str8("green"),   CELL_COLOR_GREEN   },
+		{ str8("yellow"),  CELL_COLOR_YELLOW  },
+		{ str8("blue"),    CELL_COLOR_BLUE    },
+		{ str8("magenta"), CELL_COLOR_MAGENTA },
+		{ str8("cyan"),    CELL_COLOR_CYAN    },
+		{ str8("white"),   CELL_COLOR_WHITE   },
+		{ str8("default"), CELL_COLOR_DEFAULT },
 	};
 
 	for (size_t i = 0; i < LENGTH(color_names); i++) {
-		if (strcasecmp(color_names[i].name, s) == 0) {
+		if (str8_case_ignore_equal(color_names[i].name, s)) {
 			*color = color_names[i].color;
 			return true;
 		}
@@ -108,57 +110,59 @@ static bool color_fromstring(Ui *ui, CellColor *color, const char *s)
 	return false;
 }
 
-bool ui_style_define(Win *win, int id, const char *style) {
+bool ui_style_define(Win *win, int id, str8 style)
+{
 	Ui *tui = &win->vis->ui;
 	if (id >= UI_STYLE_MAX)
 		return false;
-	if (!style)
+	if (style.length <= 0)
 		return true;
 
 	CellStyle cell_style = CELL_STYLE_DEFAULT;
-	char *style_copy = strdup(style), *option = style_copy;
-	while (option) {
-		while (*option == ' ')
-			option++;
-		char *next = strchr(option, ',');
-		if (next)
-			*next++ = '\0';
-		char *value = strchr(option, ':');
-		if (value)
-			for (*value++ = '\0'; *value == ' '; value++);
-		if (!strcasecmp(option, "reverse")) {
+	while (style.length > 0) {
+		style = str8_trim_space(style);
+
+		str8 key, value;
+		str8_split(style, &key, &style, ',');
+		str8_split(key,   &key, &value, ':');
+
+		if (key.length <= 0)
+			continue;
+
+		value = str8_trim_space(value);
+
+		if (str8_case_ignore_equal(key, str8("reverse"))) {
 			cell_style.attr |= CELL_ATTR_REVERSE;
-		} else if (!strcasecmp(option, "notreverse")) {
+		} else if (str8_case_ignore_equal(key, str8("notreverse"))) {
 			cell_style.attr &= CELL_ATTR_REVERSE;
-		} else if (!strcasecmp(option, "bold")) {
+		} else if (str8_case_ignore_equal(key, str8("bold"))) {
 			cell_style.attr |= CELL_ATTR_BOLD;
-		} else if (!strcasecmp(option, "notbold")) {
+		} else if (str8_case_ignore_equal(key, str8("notbold"))) {
 			cell_style.attr &= ~CELL_ATTR_BOLD;
-		} else if (!strcasecmp(option, "dim")) {
+		} else if (str8_case_ignore_equal(key, str8("dim"))) {
 			cell_style.attr |= CELL_ATTR_DIM;
-		} else if (!strcasecmp(option, "notdim")) {
+		} else if (str8_case_ignore_equal(key, str8("notdim"))) {
 			cell_style.attr &= ~CELL_ATTR_DIM;
-		} else if (!strcasecmp(option, "italics")) {
+		} else if (str8_case_ignore_equal(key, str8("italics"))) {
 			cell_style.attr |= CELL_ATTR_ITALIC;
-		} else if (!strcasecmp(option, "notitalics")) {
+		} else if (str8_case_ignore_equal(key, str8("notitalics"))) {
 			cell_style.attr &= ~CELL_ATTR_ITALIC;
-		} else if (!strcasecmp(option, "underlined")) {
+		} else if (str8_case_ignore_equal(key, str8("underlined"))) {
 			cell_style.attr |= CELL_ATTR_UNDERLINE;
-		} else if (!strcasecmp(option, "notunderlined")) {
+		} else if (str8_case_ignore_equal(key, str8("notunderlined"))) {
 			cell_style.attr &= ~CELL_ATTR_UNDERLINE;
-		} else if (!strcasecmp(option, "blink")) {
+		} else if (str8_case_ignore_equal(key, str8("blink"))) {
 			cell_style.attr |= CELL_ATTR_BLINK;
-		} else if (!strcasecmp(option, "notblink")) {
+		} else if (str8_case_ignore_equal(key, str8("notblink"))) {
 			cell_style.attr &= ~CELL_ATTR_BLINK;
-		} else if (!strcasecmp(option, "fore")) {
-			color_fromstring(&win->vis->ui, &cell_style.fg, value);
-		} else if (!strcasecmp(option, "back")) {
-			color_fromstring(&win->vis->ui, &cell_style.bg, value);
+		} else if (str8_case_ignore_equal(key, str8("fore"))) {
+			color_from_str8(&win->vis->ui, &cell_style.fg, value);
+		} else if (str8_case_ignore_equal(key, str8("back"))) {
+			color_from_str8(&win->vis->ui, &cell_style.bg, value);
 		}
-		option = next;
 	}
 	tui->styles[win->id * UI_STYLE_MAX + id] = cell_style;
-	free(style_copy);
+
 	return true;
 }
 
