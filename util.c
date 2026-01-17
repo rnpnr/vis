@@ -204,7 +204,7 @@ absolute_path(const char *name)
 }
 
 static IntegerConversion
-integer_conversion(str8 raw)
+integer_conversion(str8 raw, bool no_hex)
 {
 	/* NOTE: place this on its own cacheline */
 	static alignas(64) int8_t lut[64] = {
@@ -224,12 +224,14 @@ integer_conversion(str8 raw)
 	}
 
 	bool hex = 0;
-	if (raw.length - i > 2 && raw.data[i] == '0' && (raw.data[1] == 'x' || raw.data[1] == 'X')) {
-		hex  = 1;
-		i   += 2;
-	} else if (raw.length - i > 1 && raw.data[i] == '#') {
-		hex  = 1;
-		i   += 1;
+	if (!no_hex) {
+		if (raw.length - i > 2 && raw.data[i] == '0' && (raw.data[1] == 'x' || raw.data[1] == 'X')) {
+			hex  = 1;
+			i   += 2;
+		} else if (raw.length - i > 1 && raw.data[i] == '#') {
+			hex  = 1;
+			i   += 1;
+		}
 	}
 
 	#define integer_conversion_body(radix, clamp) do {\

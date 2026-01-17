@@ -599,13 +599,14 @@ static char *parse_delimited(const char **s, int type) {
 	return chunk;
 }
 
-static int parse_number(const char **s) {
-	char *end = NULL;
-	int number = strtoull(*s, &end, 10);
-	if (end == *s)
+static int parse_number(const char **s)
+{
+	str8 arg = str8_from_c_str((char *)*s);
+	IntegerConversion integer = integer_conversion(arg, 1);
+	if (integer.unparsed.data == (uint8_t *)*s)
 		return 0;
-	*s = end;
-	return number;
+	*s = (char *)integer.unparsed.data;
+	return integer.as.S64;
 }
 
 static char *parse_text(const char **s, Count *count) {

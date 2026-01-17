@@ -67,7 +67,7 @@ static bool color_from_str8(Ui *ui, CellColor *color, str8 s)
 
 	// TODO: warn if length > 7
 	if (s.data[0] == '#' && s.length == 7) {
-		IntegerConversion integer = integer_conversion(s);
+		IntegerConversion integer = integer_conversion(s, 0);
 		if (integer.result != IntegerConversionResult_Success)
 			return false;
 
@@ -78,7 +78,7 @@ static bool color_from_str8(Ui *ui, CellColor *color, str8 s)
 		return true;
 
 	} else if ('0' <= s.data[0] && s.data[0] <= '9') {
-		IntegerConversion integer = integer_conversion(s);
+		IntegerConversion integer = integer_conversion(s, 0);
 		if (integer.result != IntegerConversionResult_Success || integer.as.U64 > 255)
 			return false;
 		*color = color_terminal(ui, integer.as.U64);
