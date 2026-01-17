@@ -71,10 +71,17 @@
 #if defined(__clang__) || defined(__GNUC__)
 #define likely(x)    __builtin_expect(!!(x), 1)
 #define unlikely(x)  __builtin_expect(!!(x), 0)
+
+#define alignas(n)   __attribute__((aligned(n)))
+
 #else
 #define likely(x)    (x)
 #define unlikely(x)  (x)
+
+#define alignas(n)
 #endif
+
+#define U64_MAX    (0xFFFFFFFFFFFFFFFFull)
 
 #define LENGTH(x)  ((int)(sizeof (x) / sizeof *(x)))
 #define MIN(a, b)  ((a) > (b) ? (b) : (a))
@@ -85,7 +92,7 @@
 #define ISASCII(ch)   ((unsigned char)ch < 0x80)
 
 #define IsBlank(c)    ((c) == ' ' || (c) == '\t')
-#define IsSpace(c)    (isspace((unsigned char)c))
+#define IsSpace(c)    ((c) == ' ' || (c) == '\t' || (c) == '\n' || (c) == '\r')
 #define IsBoundary(c) (isboundary((unsigned char)c))
 
 #if GCC_VERSION>=5004000 || CLANG_VERSION>=4000000
@@ -122,5 +129,20 @@ typedef struct {
 	VisDACount  count;
 	VisDACount  capacity;
 } str8_list;
+
+typedef enum {
+	IntegerConversionResult_Invalid,
+	IntegerConversionResult_OutOfRange,
+	IntegerConversionResult_Success,
+} IntegerConversionResult;
+
+typedef struct {
+	IntegerConversionResult result;
+	union {
+		uint64_t U64;
+		int64_t  S64;
+	} as;
+	str8 unparsed;
+} IntegerConversion;
 
 #endif /* UTIL_H */
