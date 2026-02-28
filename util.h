@@ -78,6 +78,7 @@
 #define alignas(n)
 #endif
 
+#define S32_MAX    (0x7FFFFFFFl)
 #define U64_MAX    (0xFFFFFFFFFFFFFFFFull)
 
 #define LENGTH(x)  ((int)(sizeof (x) / sizeof *(x)))
@@ -120,6 +121,13 @@ typedef struct {
 	uint8_t   *data;
 } str8;
 #define str8(s) (str8){.length = sizeof(s) - 1, .data = (uint8_t *)s}
+
+typedef struct {
+	uint8_t    *data;
+	VisDACount  count;
+	VisDACount  capacity;
+	uint32_t    errors;
+} StringBuffer;
 
 typedef struct {
 	str8       *data;

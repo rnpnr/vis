@@ -54,14 +54,17 @@ static void selection_free(Selection *s)
 	free(s);
 }
 
-void window_status_update(Vis *vis, Win *win) {
-	char left_parts[4][255] = { "", "", "", "" };
-	char right_parts[4][32] = { "", "", "", "" };
-	char left[sizeof(left_parts)+LENGTH(left_parts)*8];
-	char right[sizeof(right_parts)+LENGTH(right_parts)*8];
-	char status[sizeof(left)+sizeof(right)+1];
-	size_t left_count = 0;
-	size_t right_count = 0;
+void window_status_update(Vis *vis, Win *win)
+{
+	// NOTE(rnp): add some extra space in case status contains multibyte characters
+	static char right_buffer[UI_MAX_WIDTH + UI_MAX_WIDTH / 2];
+	static char status_buffer[2 * UI_MAX_WIDTH + 1];
+
+	StringBuffer status = sb_from_buffer(status_buffer, (VisDACount)sizeof(status_buffer));
+	StringBuffer right  = sb_from_buffer(right_buffer,  (VisDACount)sizeof(right_buffer));
+
+	str8 left_spacer  = str8(" » ");
+	str8 right_spacer = str8(" « ");
 
 	View *view = &win->view;
 	File *file = win->file;
@@ -72,27 +75,31 @@ void window_status_update(Vis *vis, Win *win) {
 	const char *filename = file_name_get(file);
 	const char *mode = vis->mode->status;
 
-	if (focused && mode)
-		strcpy(left_parts[left_count++], mode);
+	sb_pad(&status, ' ', 1);
+	if (focused && mode) {
+		sb_push_str8(&status, str8_from_c_str(mode));
+		sb_push_str8(&status, left_spacer);
+	}
 
-	snprintf(left_parts[left_count++], sizeof(left_parts[0]), "%s%s%s",
-	         filename ? filename : "[No Name]",
-	         text_modified(txt) ? " [+]" : "",
-	         vis_macro_recording(vis) ? " @": "");
+	sb_push_str8(&status, filename ? str8_from_c_str(filename) : str8("[No Name]"));
+	if (text_modified(txt))       sb_push_str8(&status, str8(" [+]"));
+	if (vis_macro_recording(vis)) sb_push_str8(&status, str8(" @"));
 
 	int count = vis->action.count;
-	const char *keys = buffer_content0(&vis->input_queue);
-	if (keys && keys[0])
-		snprintf(right_parts[right_count++], sizeof(right_parts[0]), "%s", keys);
-	else if (count != VIS_COUNT_UNKNOWN)
-		snprintf(right_parts[right_count++], sizeof(right_parts[0]), "%d", count);
+	if (vis->input_queue.len) {
+		// TODO(rnp): 0 termination shouldn't count towards len in Buffer
+		size_t input_queue_len = buffer_length0(&vis->input_queue);
+		sb_push(&right, vis->input_queue.data, MIN(input_queue_len, S32_MAX));
+	} else if (count != VIS_COUNT_UNKNOWN) {
+		sb_push_fv(&right, "%d", count);
+	}
 
 	int sel_count = view->selection_count;
 	if (sel_count > 1) {
 		Selection *s = view_selections_primary_get(view);
 		int sel_number = view_selections_number(s) + 1;
-		snprintf(right_parts[right_count++], sizeof(right_parts[0]),
-		         "%d/%d", sel_number, sel_count);
+		if (right.count > 0) sb_push_str8(&right, right_spacer);
+		sb_push_fv(&right, "%d/%d", sel_number, sel_count);
 	}
 
 	size_t size = text_size(txt);
@@ -102,8 +109,9 @@ void window_status_update(Vis *vis, Win *win) {
 		double tmp = ((double)pos/(double)size)*100;
 		percent = (size_t)(tmp+1);
 	}
-	snprintf(right_parts[right_count++], sizeof(right_parts[0]),
-	         "%zu%%", percent);
+
+	if (right.count > 0) sb_push_str8(&right, right_spacer);
+	sb_push_fv(&right, "%zu%%", percent);
 
 	if (!(options & UI_OPTION_LARGE_FILE)) {
 		Selection *sel = view_selections_primary_get(&win->view);
@@ -113,39 +121,19 @@ void window_status_update(Vis *vis, Win *win) {
 			options |= UI_OPTION_LARGE_FILE;
 			win_options_set(win, options);
 		}
-		snprintf(right_parts[right_count++], sizeof(right_parts[0]),
-		         "%zu, %zu", line, col);
+		sb_push_str8(&right, right_spacer);
+		sb_push_fv(&right, "%zu, %zu", line, col);
 	}
+	sb_pad(&right, ' ', 1);
 
-	int left_len = snprintf(left, sizeof(left), " %s%s%s%s%s%s%s",
-	         left_parts[0],
-	         left_parts[1][0] ? " » " : "",
-	         left_parts[1],
-	         left_parts[2][0] ? " » " : "",
-	         left_parts[2],
-	         left_parts[3][0] ? " » " : "",
-	         left_parts[3]);
+	int left_width  = text_string_width((char *)status.data, status.count);
+	int right_width = text_string_width((char *)right.data,  right.count);
 
-	int right_len = snprintf(right, sizeof(right), "%s%s%s%s%s%s%s ",
-	         right_parts[0],
-	         right_parts[1][0] ? " « " : "",
-	         right_parts[1],
-	         right_parts[2][0] ? " « " : "",
-	         right_parts[2],
-	         right_parts[3][0] ? " « " : "",
-	         right_parts[3]);
+	sb_pad(&status, ' ', MAX(1, width - left_width - right_width));
+	sb_push_str8(&status, sb_to_str8(&right));
+	sb_terminate(&status, 0);
 
-	if (left_len < 0 || right_len < 0)
-		return;
-	int left_width = text_string_width(left, left_len);
-	int right_width = text_string_width(right, right_len);
-
-	int spaces = width - left_width - right_width;
-	if (spaces < 1)
-		spaces = 1;
-
-	snprintf(status, sizeof(status), "%s%*s%s", left, spaces, " ", right);
-	ui_window_status(win, status);
+	ui_window_status(win, (char *)status.data);
 }
 
 void view_tabwidth_set(View *view, int tabwidth) {

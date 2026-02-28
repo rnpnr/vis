@@ -113,7 +113,7 @@ str8_case_ignore_equal(str8 a, str8 b)
 }
 
 static str8
-str8_from_c_str(char *c_str)
+str8_from_c_str(const char *c_str)
 {
 	str8 result = {.data = (uint8_t *)c_str};
 	if (c_str) while (*c_str) c_str++;
@@ -159,6 +159,66 @@ static void
 str8_split(str8 s, str8 *left, str8 *right, uint8_t byte)
 {
 	str8_split_at(s, left, right, (uint8_t *)memory_scan_forward(s.data, byte, s.length) - s.data);
+}
+
+static str8
+sb_to_str8(StringBuffer *sb)
+{
+	str8 result = {.data = sb->data, .length = sb->count};
+	return result;
+}
+
+static StringBuffer
+sb_from_buffer(void *buffer, VisDACount capacity)
+{
+	StringBuffer result = {.data = buffer, .capacity = capacity};
+	return result;
+}
+
+static void
+sb_push(StringBuffer *sb, void *data, VisDACount length)
+{
+	sb->errors |= (sb->capacity - sb->count) < length;
+	if (!sb->errors) {
+		memcpy(sb->data + sb->count, data, length);
+		sb->count += length;
+	}
+}
+
+static void
+sb_pad(StringBuffer *sb, uint8_t byte, VisDACount count)
+{
+	sb->errors |= (sb->capacity - sb->count) < count;
+	if (!sb->errors) {
+		memset(sb->data + sb->count, byte, count);
+		sb->count += count;
+	}
+}
+
+// NOTE(rnp): forces termination, will overwrite last byte if necessary
+static void
+sb_terminate(StringBuffer *sb, uint8_t byte)
+{
+	sb->data[MIN(sb->count, sb->capacity - 1)] = byte;
+}
+
+static void
+sb_push_str8(StringBuffer *sb, str8 str)
+{
+	sb_push(sb, str.data, str.length);
+}
+
+// NOTE(rnp): trick to force format string to be compile time constant
+#define sb_push_fv(s, f, ...) sb_push_format_vector(s, ""f, __VA_ARGS__)
+static void __attribute__((format(printf, 2, 3)))
+sb_push_format_vector(StringBuffer *sb, const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	int length = vsnprintf((char *)(sb->data + sb->count), sb->capacity - sb->count, fmt, ap);
+	sb->errors |= (sb->capacity - sb->count) < length;
+	if (!sb->errors) sb->count += length;
+	va_end(ap);
 }
 
 static void
