@@ -155,6 +155,13 @@ typedef struct {
 #define str8_comp(s)       {sizeof(s) - 1, (u8 *)s}
 
 typedef struct {
+	uint8_t    *data;
+	VisDACount  count;
+	VisDACount  capacity;
+	uint32_t    errors;
+} StringBuffer;
+
+typedef struct {
 	str8       *data;
 	VisDACount  count;
 	VisDACount  capacity;
