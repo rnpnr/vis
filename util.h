@@ -88,6 +88,8 @@
 #define U64_MAX    (0xFFFFFFFFFFFFFFFFull)
 #define S32_MAX    (0x7FFFFFFFl)
 
+#define arg_list(type, ...) (type []){__VA_ARGS__}, sizeof((type []){__VA_ARGS__}) / sizeof(type)
+
 #define LENGTH(x)  ((int)(sizeof (x) / sizeof *(x)))
 #define MIN(a, b)  ((a) > (b) ? (b) : (a))
 #define MAX(a, b)  ((a) < (b) ? (b) : (a))

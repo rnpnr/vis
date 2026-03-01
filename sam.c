@@ -151,7 +151,7 @@ static const CommandDef cmds[] = {
 		CMD_NONE, NULL, cmd_print
 	}, {
 		"s",            VIS_HELP("Substitute: use x/pattern/ c/replacement/ instead")
-		CMD_SHELL|CMD_ADDRESS_LINE, NULL, cmd_substitute
+		CMD_ADDRESS_LINE, NULL, cmd_substitute
 	}, {
 		"v",            VIS_HELP("If range does not contain regexp, run command")
 		CMD_COUNT|CMD_REGEX|CMD_CMD, "p", cmd_guard
