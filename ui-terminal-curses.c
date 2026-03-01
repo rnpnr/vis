@@ -253,7 +253,10 @@ ui_backend_init(Ui *ui, char *term)
 {
 	bool result = newterm(term, stderr, stdin) != 0;
 	if (!result) {
-		snprintf(ui->info, sizeof(ui->info), "Warning: unknown term `%s'", term);
+		StringBuffer sb = sb_from_buffer(ui->info, (VisDACount)sizeof(ui->info));
+		sb_push_str8(&sb, str8("Warning unknown term: "));
+		sb_push_str8(&sb, str8_from_c_str(term));
+		sb_terminate(&sb, 0);
 		result = newterm(strstr(term, "-256color") ? "xterm-256color" : "xterm", stderr, stdin) != 0;
 	}
 

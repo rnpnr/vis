@@ -1,18 +1,27 @@
 #include "vis-core.h"
 
-static Regex *search_word(Vis *vis, Text *txt, size_t pos) {
-	char expr[512];
+static Regex *search_word(Vis *vis, Text *txt, size_t pos)
+{
+	char expr_buffer[512];
+	StringBuffer expr = sb_from_buffer(expr_buffer, (VisDACount)sizeof(expr_buffer));
 	Filerange word = text_object_word(txt, pos);
 	if (!text_range_valid(word))
 		return NULL;
+
 	char *buf = text_bytes_alloc0(txt, word.start, text_range_size(word));
 	if (!buf)
 		return NULL;
-	snprintf(expr, sizeof(expr), "[[:<:]]%s[[:>:]]", buf);
-	Regex *regex = vis_regex(vis, expr);
+
+	str8 buf_str = {.data = (uint8_t *)buf, .length = text_range_size(word)};
+	sb_push_str8s(&expr, str8("[[:<:]]"), buf_str, str8("[[:>:]]"));
+	sb_terminate(&expr, 0);
+
+	Regex *regex = vis_regex(vis, expr_buffer);
 	if (!regex) {
-		snprintf(expr, sizeof(expr), "\\<%s\\>", buf);
-		regex = vis_regex(vis, expr);
+		sb_reset(&expr, 0);
+		sb_push_str8s(&expr, str8("\\<"), buf_str, str8("\\>"));
+		sb_terminate(&expr, 0);
+		regex = vis_regex(vis, expr_buffer);
 	}
 	free(buf);
 	return regex;
