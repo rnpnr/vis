@@ -2154,19 +2154,24 @@ static int window_style_pos(lua_State *L) {
 static int window_status(lua_State *L)
 {
 	Win *win = obj_ref_check(L, 1, VIS_LUA_TYPE_WINDOW);
-	char status[1024] = "";
-	int width = win->width;
 
 	str8 left  = lua_check_str8(L, 2);
 	str8 right = lua_opt_str8(L, 3, str8(""));
 
-	int left_width = text_string_width((char *)left.data, left.length);
+	int width       = win->width;
+	int left_width  = text_string_width((char *)left.data,  left.length);
 	int right_width = text_string_width((char *)right.data, right.length);
-	int spaces = width - left_width - right_width;
-	if (spaces < 1)
-		spaces = 1;
-	snprintf(status, sizeof(status)-1, "%s%*s%s", (char *)left.data, spaces, " ", (char *)right.data);
-	ui_window_status(win, status);
+
+	char status_buffer[1024];
+
+	StringBuffer status = sb_from_buffer(status_buffer, (VisDACount)sizeof(status_buffer));
+	sb_push_str8(&status, left);
+	sb_pad(&status, ' ', MAX(1, width - left_width - right_width));
+	sb_push_str8(&status, right);
+	sb_terminate(&status, 0);
+
+	ui_window_status(win, (char *)status.data);
+
 	return 0;
 }
 
@@ -3291,7 +3296,7 @@ static void vis_lua_init(Vis *vis)
 	 * - package.path (standard lua search path)
 	 */
 	char path_buffer[PATH_MAX];
-	str8 path = {.data = (uint8_t *)path_buffer};
+	StringBuffer path = sb_from_buffer(path_buffer, (VisDACount)sizeof(path_buffer));
 
 	lua_path_add(L, str8(VIS_PATH));
 
@@ -3307,22 +3312,22 @@ static void vis_lua_init(Vis *vis)
 
 	const char *xdg_config = getenv("XDG_CONFIG_HOME");
 	if (xdg_config) {
-		path.length = snprintf(path_buffer, sizeof(path_buffer), "%s/vis", xdg_config);
-		lua_path_add(L, path);
+		sb_push_str8(&path, str8_from_c_str(xdg_config));
+		sb_push_str8(&path, str8("/vis"));
+		lua_path_add(L, sb_to_str8(&path));
 	} else if (home && *home) {
-		path.length = snprintf(path_buffer, sizeof(path_buffer), "%s/.config/vis", home);
-		lua_path_add(L, path);
+		sb_push_str8(&path, str8_from_c_str(home));
+		sb_push_str8(&path, str8("/.config/vis"));
+		lua_path_add(L, sb_to_str8(&path));
 	}
 
 	ssize_t len = readlink("/proc/self/exe", path_buffer, sizeof(path_buffer)-1);
 	if (len > 0) {
-		str8 dir, tail = str8("/lua");
+		str8 dir;
 		path_split((str8){.length = len, .data = path.data}, &dir, 0);
-		path.length = dir.length + tail.length;
-		if (path.length <= sizeof(path_buffer)) {
-			memcpy(path.data + dir.length, tail.data, tail.length);
-			lua_path_add(L, path);
-		}
+		path.count = dir.length;
+		sb_push_str8(&path, str8("/lua"));
+		if (!path.errors) lua_path_add(L, sb_to_str8(&path));
 	}
 
 	lua_path_add(L, str8_from_c_str(getenv("VIS_PATH")));

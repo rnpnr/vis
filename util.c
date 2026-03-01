@@ -176,6 +176,14 @@ sb_from_buffer(void *buffer, VisDACount capacity)
 }
 
 static void
+sb_reset(StringBuffer *sb, VisDACount count)
+{
+	sb->errors = sb->capacity <= count;
+	if (!sb->errors)
+		sb->count = count;
+}
+
+static void
 sb_push(StringBuffer *sb, void *data, VisDACount length)
 {
 	sb->errors |= (sb->capacity - sb->count) < length;
@@ -200,6 +208,14 @@ static void
 sb_terminate(StringBuffer *sb, uint8_t byte)
 {
 	sb->data[MIN(sb->count, sb->capacity - 1)] = byte;
+}
+
+#define sb_push_str8s(sb, ...) sb_push_str8_list(sb, arg_list(str8, __VA_ARGS__))
+static void
+sb_push_str8_list(StringBuffer *sb, str8 *strs, size_t count)
+{
+	for (size_t i = 0; i < count; i++)
+		sb_push(sb, strs[i].data, strs[i].length);
 }
 
 static void
@@ -256,8 +272,9 @@ absolute_path(const char *name)
 		if (strcmp(path_resolved, "/") == 0)
 			path_resolved[0] = 0;
 
-		snprintf(path_normalized, sizeof(path_normalized), "%s/%.*s",
-		         path_resolved, (int)base.length, base.data);
+		StringBuffer sb = sb_from_buffer(path_normalized, (VisDACount)sizeof(path_normalized));
+		sb_push_str8s(&sb, str8_from_c_str(path_resolved), str8("/"), base);
+		sb_terminate(&sb, 0);
 		result = strdup(path_normalized);
 	}
 	return result;

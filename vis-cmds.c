@@ -708,18 +708,20 @@ static bool print_cmd(const char *key, void *value, void *data)
 {
 	CommandDef *cmd = value;
 	const char *help = VIS_HELP_USE(cmd->help);
-	char usage[256];
+	char usage_buffer[256];
 	Vis  *vis = ((void **)data)[0];
 	Text *txt = ((void **)data)[1];
-	snprintf(usage, sizeof usage, "%s%s%s%s%s%s%s",
-	         cmd->name,
-	         (cmd->flags & CMD_FORCE) ? "[!]" : "",
-	         (cmd->flags & CMD_TEXT) ? "/text/" : "",
-	         (cmd->flags & CMD_REGEX) ? "/regexp/" : "",
-	         (cmd->flags & CMD_CMD) ? " command" : "",
-	         (cmd->flags & CMD_SHELL) ? (!strcmp(cmd->name, "s") ? "/regexp/text/" : " shell-command") : "",
-	         (cmd->flags & CMD_ARGV) ? " [args...]" : "");
-	return text_appendf(vis, txt, "  %-30s %s\n", usage, help ? help : "");
+	StringBuffer sb = sb_from_buffer(usage_buffer, sizeof(usage_buffer));
+	sb_push_str8(&sb, str8_from_c_str(cmd->name));
+	if (!strcmp(cmd->name, "s")) sb_push_str8(&sb, str8("/regexp/text/"));
+	if (cmd->flags & CMD_FORCE)  sb_push_str8(&sb, str8("[!]"));
+	if (cmd->flags & CMD_TEXT)   sb_push_str8(&sb, str8("/text/"));
+	if (cmd->flags & CMD_REGEX)  sb_push_str8(&sb, str8("/regexp/"));
+	if (cmd->flags & CMD_CMD)    sb_push_str8(&sb, str8(" command"));
+	if (cmd->flags & CMD_SHELL)  sb_push_str8(&sb, str8(" shell-command"));
+	if (cmd->flags & CMD_ARGV)   sb_push_str8(&sb, str8(" [args...]"));
+	sb_terminate(&sb, 0);
+	return text_appendf(vis, txt, "  %-30s %s\n", (char *)sb.data, help ? help : "");
 }
 
 static bool print_cmd_name(const char *key, void *value, void *data) {
@@ -734,20 +736,26 @@ void vis_print_cmds(Vis *vis, Buffer *buf, const char *prefix) {
 
 static bool print_option(const char *key, void *value, void *data)
 {
-	char desc[256];
+	char desc_buffer[256];
 	const OptionDef *opt = value;
 	const char *help = VIS_HELP_USE(opt->help);
 	if (strcmp(key, opt->names[0]))
 		return true;
-	snprintf(desc, sizeof desc, "%s%s%s%s%s",
-	         opt->names[0],
-	         opt->names[1] ? "|" : "",
-	         opt->names[1] ? opt->names[1] : "",
-	         opt->flags & VIS_OPTION_TYPE_BOOL ? " on|off" : "",
-	         opt->flags & VIS_OPTION_TYPE_NUMBER ? " nn" : "");
+
 	Vis  *vis = ((void **)data)[0];
 	Text *txt = ((void **)data)[1];
-	return text_appendf(vis, txt, "  %-30s %s\n", desc, help ? help : "");
+
+	StringBuffer sb = sb_from_buffer(desc_buffer, sizeof(desc_buffer));
+	sb_push_str8(&sb, str8_from_c_str(opt->names[0]));
+	if (opt->names[1]) {
+		sb_push_str8(&sb, str8("|"));
+		sb_push_str8(&sb, str8_from_c_str(opt->names[1]));
+	}
+	if (opt->flags & VIS_OPTION_TYPE_BOOL)   sb_push_str8(&sb, str8(" on|off"));
+	if (opt->flags & VIS_OPTION_TYPE_NUMBER) sb_push_str8(&sb, str8(" nn"));
+	sb_terminate(&sb, 0);
+
+	return text_appendf(vis, txt, "  %-30s %s\n", (char *)sb.data, help ? help : "");
 }
 
 static void print_symbolic_keys(Vis *vis, Text *txt)

@@ -287,14 +287,14 @@ static bool text_save_begin_atomic(TextSave *ctx)
 	str8 base, dir, fname = str8_from_c_str((char *)ctx->filename);
 	path_split(fname, &dir, &base);
 
-	char suffix[] = ".vis.XXXXXX";
-	size_t len = fname.length + sizeof("./.") + sizeof(suffix);
+	str8 suffix = str8(".vis.XXXXXX");
+	size_t len = fname.length + sizeof("/.") + suffix.length + 1;
 
 	if (!(ctx->tmpname.data = malloc(len)))
 		goto err;
 
-	ctx->tmpname.length = snprintf((char *)ctx->tmpname.data, len, "%.*s/.%.*s%s",
-	                               (int)dir.length, dir.data, (int)base.length, base.data, suffix);
+	StringBuffer sb = sb_from_buffer(ctx->tmpname.data, len);
+	sb_push_str8s(&sb, dir, str8("/."), base, suffix);
 
 	if ((ctx->fd = mkstempat(ctx->dirfd, (char *)ctx->tmpname.data)) == -1)
 		goto err;

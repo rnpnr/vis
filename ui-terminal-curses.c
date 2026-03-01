@@ -254,9 +254,13 @@ int ui_terminal_colors(void) {
 	return COLORS;
 }
 
-static bool ui_term_backend_init(Ui *tui, char *term) {
+static bool ui_term_backend_init(Ui *tui, char *term)
+{
 	if (!newterm(term, stderr, stdin)) {
-		snprintf(tui->info, sizeof(tui->info), "Warning: unknown term `%s'", term);
+		StringBuffer sb = sb_from_buffer(tui->info, (VisDACount)sizeof(tui->info));
+		sb_push_str8(&sb, str8("Warning unknown term: "));
+		sb_push_str8(&sb, str8_from_c_str(term));
+		sb_terminate(&sb, 0);
 		if (!newterm(strstr(term, "-256color") ? "xterm-256color" : "xterm", stderr, stdin))
 			return false;
 	}
