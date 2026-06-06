@@ -1061,7 +1061,7 @@ static void vis_keys_process(Vis *vis, size_t pos) {
 					binding_end = end;
 				}
 
-				const Map *pmap = map_prefix(mode->bindings, start);
+				const Map *pmap = vis_map_prefix(mode->bindings, str8_from_c_str(start));
 				PrefixCompletion completions = {
 					.vis = vis,
 					.len = cur - start,
