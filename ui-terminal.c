@@ -15,8 +15,13 @@ typedef struct {
 VIS_INTERNAL bool
 vis_cell_buffer_resize(VisCellBuffer *cb, u32 width, u32 height)
 {
+	// NOTE(rnp): extra space for dirty cell array, will generally just land in padding. Has
+	// a minimum size to ensure we can compute dirty cells with SIMD without a cleanup loop.
+	u64 extra_size  = height * width / 8 + 1;
+	u64 bits_offset = round_up_to(width * height * sizeof(VisCell), 64);
+
 	u64 page_size = sysconf(_SC_PAGE_SIZE);
-	u64 size      = round_up_to(width * height * sizeof(VisCell), page_size);
+	u64 size      = round_up_to(bits_offset + extra_size, page_size);
 
 	// NOTE(rnp): we always ask for a new address range here which allows for both
 	// growing and shrinking. it also means that this function always 0s the memory
@@ -26,6 +31,7 @@ vis_cell_buffer_resize(VisCellBuffer *cb, u32 width, u32 height)
 		if (cb->cells) munmap(cb->cells, cb->size);
 		cb->cells = memory;
 		cb->size  = size;
+		cb->dirty_cell_bits = (u8 *)memory + bits_offset;
 	}
 	return result;
 }

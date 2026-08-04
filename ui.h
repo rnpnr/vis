@@ -99,6 +99,7 @@ typedef alignas(16) struct {
 typedef struct {
 	VisCell *cells;
 	u64      size;
+	u8      *dirty_cell_bits;
 } VisCellBuffer;
 
 typedef struct {
