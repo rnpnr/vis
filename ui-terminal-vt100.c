@@ -33,6 +33,11 @@
  * See http://invisible-island.net/xterm/ctlseqs/ctlseqs.txt
  * for further information.
  */
+
+#ifdef __AVX512F__
+#include <immintrin.h>
+#endif
+
 #define UI_TERMKEY_FLAGS 0
 
 VIS_INTERNAL VisCellStyle
@@ -151,6 +156,29 @@ ui_term_backend_blit(Ui *ui)
 	///////////////////////
 	// NOTE(rnp): compute dirty cells
 
+	#ifdef __AVX512F__
+	enum Ternary {
+		Ternary_A = 0xF0,
+		Ternary_B = 0xCC,
+		Ternary_C = 0xAA,
+	};
+
+	// NOTE(rnp): don't need to do any masking or cleanup, cell array size
+	// was rounded up to 64 bytes.
+	for (s32 cell_index = 0; cell_index < cell_count; cell_index += 8) {
+		// NOTE(rnp): in theory xor + ternary logic have higher throughput than
+		// cmp neq + mask register ops (dependant on which specific CPU is in use).
+		__m512i fbc = _mm512_loadu_epi64(vt->cell_buffer.cells + cell_index);
+		__m512i bbc = _mm512_loadu_epi64(ui->cell_buffer.cells + cell_index);
+		__m512i fbs = _mm512_loadu_epi64(vt->cell_buffer.styles + cell_index);
+		__m512i bbs = _mm512_loadu_epi64(ui->cell_buffer.styles + cell_index);
+		__m512i dirty = _mm512_ternarylogic_epi64(_mm512_xor_epi64(fbc, bbc), fbs, bbs,
+		                                          Ternary_A | (Ternary_B ^ Ternary_C));
+		vt->cell_buffer.dirty_cell_bits[cell_index / 8] = _mm512_test_epi64_mask(dirty, dirty);
+	}
+
+	#else
+
 	// NOTE(rnp): Test by using xor which leaves bits set when NEQ.
 	// Writing it this way makes it more likely compiler will optimize
 	// to a ternary logic instruction which is very fast
@@ -168,6 +196,8 @@ ui_term_backend_blit(Ui *ui)
 		}
 		vt->cell_buffer.dirty_cell_bits[cell_index / 8] = value;
 	}
+
+	#endif
 
 	///////////////////////
 	// NOTE(rnp): prepare output buffer
