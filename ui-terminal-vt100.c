@@ -34,7 +34,7 @@
  * for further information.
  */
 
-#ifdef __AVX512F__
+#if defined(__AVX512F__) || defined(__AVX__)
 #include <immintrin.h>
 #endif
 
@@ -175,6 +175,32 @@ ui_term_backend_blit(Ui *ui)
 		test = _mm512_ternarylogic_epi64(test, fb, bb, 0xF6); // NOTE: 0xF6 == test | (fb ^ bb)
 
 		vt->cell_buffer.dirty_cell_bits[cell_index / 8] = _mm512_test_epi64_mask(test, test);
+	}
+
+	#elif defined(__AVX__)
+
+	for (s32 cell_index = 0; cell_index < cell_count; cell_index += 8) {
+		__m256d ca, cb, sa, sb, test_lo, test_hi;
+		ca = _mm256_loadu_pd((double *)vt->cell_buffer.cells  + cell_index);
+		cb = _mm256_loadu_pd((double *)ui->cell_buffer.cells  + cell_index);
+		sa = _mm256_loadu_pd((double *)vt->cell_buffer.styles + cell_index);
+		sb = _mm256_loadu_pd((double *)ui->cell_buffer.styles + cell_index);
+		test_lo = _mm256_xor_pd(ca, cb);
+		test_lo = _mm256_or_pd(test_lo, _mm256_xor_pd(sa, sb));
+		test_lo = _mm256_cmp_pd(test_lo, _mm256_setzero_pd(), 0);
+
+		ca = _mm256_loadu_pd((double *)vt->cell_buffer.cells  + cell_index + 4);
+		cb = _mm256_loadu_pd((double *)ui->cell_buffer.cells  + cell_index + 4);
+		sa = _mm256_loadu_pd((double *)vt->cell_buffer.styles + cell_index + 4);
+		sb = _mm256_loadu_pd((double *)ui->cell_buffer.styles + cell_index + 4);
+		test_hi = _mm256_xor_pd(ca, cb);
+		test_hi = _mm256_or_pd(test_hi, _mm256_xor_pd(sa, sb));
+		test_hi = _mm256_cmp_pd(test_hi, _mm256_setzero_pd(), 0);
+
+		u8 mask_lo = _mm256_movemask_pd(test_lo) & 0x0F;
+		u8 mask_hi = _mm256_movemask_pd(test_hi) & 0x0F;
+
+		vt->cell_buffer.dirty_cell_bits[cell_index / 8] = ~(mask_hi << 4 | mask_lo);
 	}
 
 	#else
