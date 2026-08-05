@@ -135,21 +135,6 @@ vis_ui_vt100_cursor_visible(bool visible)
 	vis_ui_vt100_output(visible ? str8("\x1b[?25h") : str8("\x1b[?25l"));
 }
 
-#ifndef __AVX512F__
-VIS_INTERNAL bool
-vis_cell_equal(VisCell *_a, VisCell *_b)
-{
-	// static_assert(sizeof(VisCell) % 8 == 0, "");
-	u64 a[sizeof(VisCell) / sizeof(u64)], b[sizeof(VisCell) / sizeof(u64)];
-	memory_copy(a, _a, sizeof(VisCell));
-	memory_copy(b, _b, sizeof(VisCell));
-	bool result = true;
-	for (u64 i = 0; i < countof(a); i++)
-		result &= a[i] == b[i];
-	return result;
-}
-#endif
-
 VIS_INTERNAL void
 ui_term_backend_blit(Ui *ui)
 {
@@ -160,8 +145,10 @@ ui_term_backend_blit(Ui *ui)
 	s32 cell_count = ui->width * ui->height;
 
 	if unlikely(vt->flush_terminal) {
-		u64 cells_size = round_up_to(cell_count * sizeof(VisCell), 64);
-		memset(vt->cell_buffer.cells, 0, cells_size);
+		u64 cells_size  = round_up_to(cell_count * sizeof(VisCell), 64);
+		u64 styles_size = round_up_to(cell_count * sizeof(VisCellStyle), 64);
+		memset(vt->cell_buffer.cells,  0, cells_size);
+		memset(vt->cell_buffer.styles, 0, styles_size);
 		vt->flush_terminal = false;
 		vis_ui_vt100_immediate_clear();
 	}
@@ -171,42 +158,35 @@ ui_term_backend_blit(Ui *ui)
 
 	// NOTE(rnp): compute dirty cells
 
-	#ifdef __AVX512F__
+	#if defined(__AVX512F__)
 	// NOTE(rnp): don't need to do any masking or cleanup, cell array size
 	// was rounded up to 64 bytes.
 	for (s32 cell_index = 0; cell_index < cell_count; cell_index += 8) {
-		__m512i fb, bb, hi, lo, test;
-		fb = _mm512_loadu_epi64(vt->cell_buffer.cells + cell_index + 0);
-		bb = _mm512_loadu_epi64(ui->cell_buffer.cells + cell_index + 0);
-		lo = _mm512_xor_epi64(fb, bb);
+		__m512i  fb, bb, test;
+		// NOTE(rnp): xor leaves bits set when NEQ which is what is being tested here.
+		// in theory xor + ternary logic have higher throughput than cmp neq + mask
+		// register ops (dependant on which specific CPU is in use).
+		fb   = _mm512_loadu_epi64(vt->cell_buffer.cells + cell_index);
+		bb   = _mm512_loadu_epi64(ui->cell_buffer.cells + cell_index);
+		test = _mm512_xor_epi64(fb, bb);
 
-		fb = _mm512_loadu_epi64(vt->cell_buffer.cells + cell_index + 4);
-		bb = _mm512_loadu_epi64(ui->cell_buffer.cells + cell_index + 4);
-		hi = _mm512_xor_epi64(fb, bb);
+		fb   = _mm512_loadu_epi64(vt->cell_buffer.styles + cell_index);
+		bb   = _mm512_loadu_epi64(ui->cell_buffer.styles + cell_index);
+		test = _mm512_ternarylogic_epi64(test, fb, bb, 0xF6); // NOTE: 0xF6 == test | (fb ^ bb)
 
-		// NOTE(rnp): xor leaves bits set when data is not equal which is what we want;
-		// however, we need to compare 16 byte values not 8 byte values. Shuffle upper
-		// portion of 128 bit lanes down and or with lower portion leaving bits set
-		// when either upper or lower 8 bytes are not equal.
-		lo = _mm512_or_epi64(lo, _mm512_shuffle_epi32(lo, 0x0e));
-		hi = _mm512_or_epi64(hi, _mm512_shuffle_epi32(hi, 0x0e));
-
-		// NOTE(rnp): pack lower half of 128 bit results into lower 32 bytes of register
-		lo = _mm512_mask_compress_epi64(lo, 0x55, lo);
-		hi = _mm512_mask_compress_epi64(hi, 0x55, hi);
-
-		// NOTE(rnp): mix lower 4 lanes of lo with lower 4 lanes of hi.
-		// lo goes to lower 4 lanes of test and hi goes to upper 4 lanes
-		test = _mm512_inserti64x4(lo, _mm512_extracti64x4_epi64(hi, 0), 1);
-
-		// NOTE(rnp): test which lanes are non zero (cells not equal) and store the result
 		vt->cell_buffer.dirty_cell_bits[cell_index / 8] = _mm512_test_epi64_mask(test, test);
 	}
 
 	#else
 
 	for (s32 cell_index = 0; cell_index < cell_count; cell_index++) {
-		if (!vis_cell_equal(vt->cell_buffer.cells + cell_index, ui->cell_buffer.cells + cell_index)) {
+		//static_assert(sizeof(*vt->cell_buffer.cells)  == 8, "");
+		//static_assert(sizeof(*vt->cell_buffer.styles) == 8, "");
+		u64 ca = ((u64 *)vt->cell_buffer.cells)[cell_index];
+		u64 cb = ((u64 *)ui->cell_buffer.cells)[cell_index];
+		u64 sa = ((u64 *)vt->cell_buffer.styles)[cell_index];
+		u64 sb = ((u64 *)ui->cell_buffer.styles)[cell_index];
+		if (ca != cb || sa != sb) {
 			s32 bin = cell_index / 8;
 			s32 bit = cell_index % 8;
 			vt->cell_buffer.dirty_cell_bits[bin] |= 1 << bit;
@@ -228,8 +208,8 @@ ui_term_backend_blit(Ui *ui)
 		s32 bin = cell_index / 8;
 		s32 bit = cell_index % 8;
 		if (vt->cell_buffer.dirty_cell_bits[bin] & (1 << bit)) {
-			VisCell *fb = vt->cell_buffer.cells + cell_index;
-			VisCell *bb = ui->cell_buffer.cells + cell_index;
+			VisCellData  bbc = ui->cell_buffer.cells[cell_index];
+			VisCellStyle bbs = ui->cell_buffer.styles[cell_index];
 			if (cursor_cell != cell_index) {
 				s32 x = cell_index % ui->width;
 				s32 y = cell_index / ui->width;
@@ -237,7 +217,7 @@ ui_term_backend_blit(Ui *ui)
 				cursor_cell = cell_index;
 			}
 
-			VisCellStyle style = bb->style;
+			VisCellStyle style = bbs;
 			if (style.attributes != attributes) {
 				static const struct {
 					u8 flag;
@@ -284,11 +264,12 @@ ui_term_backend_blit(Ui *ui)
 				bg = style_bg;
 			}
 
-			buffer_append(buf, bb->data, bb->data_length);
-			memory_copy(fb, bb, sizeof(*fb));
+			buffer_append(buf, bbc.data, bbc.data_length);
+			vt->cell_buffer.cells[cell_index]  = bbc;
+			vt->cell_buffer.styles[cell_index] = bbs;
 
 			// NOTE(rnp): anytime we print a character the terminal's cursor advances by the cell width
-			cursor_cell += fb->width;
+			cursor_cell += bbc.width;
 		}
 	}
 
