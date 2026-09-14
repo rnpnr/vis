@@ -239,8 +239,8 @@ ui_term_backend_blit(Ui *ui)
 		s32 bin = cell_index / 8;
 		s32 bit = cell_index % 8;
 		if (vt->cell_buffer.dirty_cell_bits[bin] & (1 << bit)) {
-			VisCellData  bbc = ui->cell_buffer.cells[cell_index];
-			VisCellStyle bbs = ui->cell_buffer.styles[cell_index];
+			VisCellOpaqueData bbc = ui->cell_buffer.cells[cell_index];
+			VisCellStyle      bbs = ui->cell_buffer.styles[cell_index];
 			if (cursor_cell != cell_index) {
 				s32 x = cell_index % ui->width;
 				s32 y = cell_index / ui->width;
@@ -295,7 +295,8 @@ ui_term_backend_blit(Ui *ui)
 				bg = style_bg;
 			}
 
-			buffer_append(buf, bbc.data, bbc.data_length);
+			str8 str = vis_cell_str8(ui, bbc);
+			buffer_append(buf, str.data, str.length);
 			vt->cell_buffer.cells[cell_index]  = bbc;
 			vt->cell_buffer.styles[cell_index] = bbs;
 

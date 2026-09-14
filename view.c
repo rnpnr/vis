@@ -44,6 +44,14 @@ static void selection_free(Selection *s)
 	free(s);
 }
 
+// TODO(rnp): cleanup win and view should be merged
+VIS_INTERNAL Win *
+vis_win_from_view(View *view)
+{
+	Win *result = (Win *)((char *)view - offsetof(Win, view));
+	return result;
+}
+
 void window_status_update(Vis *vis, Win *win)
 {
 	// NOTE(rnp): add some extra space in case status contains multibyte characters
@@ -124,11 +132,13 @@ void window_status_update(Vis *vis, Win *win)
 	ui_window_status(vis, win, (char *)status.data);
 }
 
-void view_tabwidth_set(View *view, int tabwidth) {
-	if (tabwidth < 1 || tabwidth > 8)
-		return;
-	view->tabwidth = tabwidth;
-	view_draw(view);
+VIS_INTERNAL void
+vis_view_tabwidth_set(Vis *vis, View *view, int tabwidth)
+{
+	if Between(tabwidth, 1, 8) {
+		view->tabwidth = tabwidth;
+		vis_view_draw(vis, view);
+	}
 }
 
 /* reset internal view data structures (cell matrix, line offsets etc.) */
@@ -181,13 +191,14 @@ static int view_max_text_width(const View *view) {
 VIS_INTERNAL VisCell
 view_blank_cell(View *view)
 {
-	// TODO(rnp): cleanup win and view should be merged
-	Win *win = (Win *)((char *)view - offsetof(Win, view));
-	VisCell result     = {0};
-	result.data[0]     = ' ';
-	result.data_length = 1;
-	result.width       = 1;
-	result.style       = win->vis->ui.styles[UI_STYLE_DEFAULT];
+	Win *win = vis_win_from_view(view);
+	VisCellNormalData cd = {0};
+	cd.data[0]     = ' ';
+	cd.data_length = 1;
+	cd.width       = 1;
+	VisCell result = {0};
+	memory_copy(&result, &cd, sizeof(cd));
+	result.style = win->vis->ui.styles[UI_STYLE_DEFAULT];
 	return result;
 }
 
@@ -248,7 +259,7 @@ view_add_cell(View *view, VisCell cell)
 VIS_INTERNAL bool
 view_expand_tab(View *view, VisCell *cell)
 {
-	Win *win = (Win *)((char *)view - offsetof(Win, view));
+	Win *win = vis_win_from_view(view);
 	cell->style = vis_cell_style_merge(cell->style, win->vis->ui.styles[UI_STYLE_WHITESPACE]);
 
 	cell->width = 1;
@@ -272,7 +283,7 @@ view_expand_tab(View *view, VisCell *cell)
 VIS_INTERNAL bool
 view_expand_newline(View *view, VisCell *cell)
 {
-	Win *win = (Win *)((char *)view - offsetof(Win, view));
+	Win *win = vis_win_from_view(view);
 	cell->style = vis_cell_style_merge(cell->style, win->vis->ui.styles[UI_STYLE_WHITESPACE]);
 
 	str8 symbol = view->symbols[SYNTAX_SYMBOL_EOL];
@@ -294,7 +305,7 @@ view_expand_newline(View *view, VisCell *cell)
 VIS_INTERNAL bool
 view_expand_space(View *view, VisCell *cell)
 {
-	Win *win = (Win *)((char *)view - offsetof(Win, view));
+	Win *win = vis_win_from_view(view);
 	cell->style = vis_cell_style_merge(cell->style, win->vis->ui.styles[UI_STYLE_WHITESPACE]);
 
 	str8 symbol = view->symbols[SYNTAX_SYMBOL_SPACE];
@@ -322,7 +333,7 @@ view_addch(View *view, VisCell *cell)
 		view->wrapcol = view->col;
 	}
 	view->prevch_breakat = ch_breakat;
-	cell->style = view_blank_cell(view).style;
+	cell->style = vis_win_from_view(view)->vis->ui.styles[UI_STYLE_DEFAULT];
 
 	u8 ch = cell->data[0];
 	switch (ch) {
@@ -362,7 +373,7 @@ static void cursor_to(Selection *s, size_t pos) {
 		return;
 	}
 	// TODO: minimize number of redraws
-	view_draw(s->view);
+	vis_view_draw(vis_win_from_view(s->view)->vis, s->view);
 }
 
 bool view_coord_get(View *view, size_t pos, Line **retline, int *retrow, int *retcol) {
@@ -403,10 +414,48 @@ bool view_coord_get(View *view, size_t pos, Line **retline, int *retrow, int *re
 	return true;
 }
 
+typedef struct {
+	u32 valid_length;
+	u32 holdback_length;
+	u8  valid_utf8[1024];
+	u8  holdback[256];
+} VisGraphemeState;
+
+VIS_INTERNAL void
+vis_flush_graphemes_to_view(Vis *vis, View *view, VisGraphemeState *gs, bool force_drain)
+{
+	char buffer[countof(gs->valid_utf8) + countof(gs->holdback)];
+	memory_copy(buffer, gs->holdback, gs->holdback_length);
+	memory_copy(buffer + gs->holdback_length, gs->valid_utf8, gs->valid_length);
+
+	u64 length = gs->holdback_length + gs->valid_length;
+	u64 offset = 0;
+	while (offset < length) {
+		u64 grapheme_length = grapheme_next_character_break_utf8(buffer + offset, length - offset);
+		u64 next_boundary   = offset + grapheme_length;
+
+		// NOTE(rnp): store in holdback in case there is more data available
+		if (next_boundary == length && !force_drain) {
+			assert(grapheme_length <= countof(gs->holdback));
+			gs->holdback_length = grapheme_length;
+			memory_copy(gs->holdback, buffer + offset, grapheme_length);
+			break;
+		}
+
+		// NOTE(rnp): this is not the last grapheme, so commit to view
+		str8 grapheme = {.data = (u8 *)buffer + offset, .length = grapheme_length};
+		VisCellOpaqueData cell = vis_cell_data_from_string(&vis->ui, grapheme);
+		// TODO(rnp): if we inserted replacement chars into buffer we need some way of knowing that
+		cell.file_byte_count = grapheme_length;
+
+		offset = next_boundary;
+	}
+}
+
 /* redraw the complete with data starting from view->start bytes into the file.
  * stop once the screen is full, update view->end, view->lastline */
 VIS_INTERNAL void
-view_draw(View *view)
+vis_view_draw(View *view)
 {
 	view_clear(view);
 	/* read a screenful of text considering each character as 4-byte UTF character*/
@@ -415,6 +464,13 @@ view_draw(View *view)
 	char *text = view->textbuf;
 	/* absolute position of character currently being added to display */
 	size_t pos = view->start;
+
+	// TODO(rnp):
+	// - read in text (as it currently does)
+	// - do a validation pass on the utf8 into an intermediate
+	// - segment into graphemes and store into cells
+	//   - need to be careful near the ends to ensure
+	//     we don't break on partial graphemes
 
 	str8 string = {.data = (u8 *)text, .length = text_bytes_get(view->text, view->start, size, text)};
 	VisCell prev_cell = {0};
@@ -446,6 +502,7 @@ view_draw(View *view)
 
 	/* set end of viewing region */
 	view->end = pos;
+
 	if (view->line) {
 		bool eof = view->end == text_size(view->text);
 		if (view->line->len == 0 && eof && view->line->prev) {
@@ -523,7 +580,7 @@ bool view_resize(View *view, int width, int height) {
 	view->textbuf = textbuf;
 	view->width = width;
 	view->height = height;
-	view_draw(view);
+	vis_view_draw(vis_win_from_view(view)->vis, view);
 	return true;
 }
 
@@ -605,7 +662,7 @@ static bool view_viewport_down(View *view, int n)
 		for (Line *line = view->topline; line && n > 0; line = line->next, n--)
 			view->start += line->len;
 	}
-	view_draw(view);
+	vis_view_draw(vis_win_from_view(view)->vis, view);
 	return true;
 }
 
@@ -636,7 +693,7 @@ static bool view_viewport_up(View *view, int n)
 			break;
 	} while (text_iterator_byte_prev(&it, &c));
 	view->start -= MIN(view->start, off);
-	view_draw(view);
+	vis_view_draw(vis_win_from_view(view)->vis, view);
 	return true;
 }
 
@@ -644,7 +701,7 @@ void view_redraw_top(View *view) {
 	Line *line = view->selection->line;
 	for (Line *cur = view->topline; cur && cur != line; cur = cur->next)
 		view->start += cur->len;
-	view_draw(view);
+	vis_view_draw(vis_win_from_view(view)->vis, view);
 	/* FIXME: does this logic make sense */
 	view_cursors_to(view->selection, view->selection->pos);
 }
@@ -664,7 +721,7 @@ view_redraw_center(View *view)
 			view->start += l->len;
 		}
 	}
-	view_draw(view);
+	vis_view_draw(vis_win_from_view(view)->vis, view);
 	view_cursors_to(view->selection, pos);
 }
 
@@ -1105,7 +1162,7 @@ int view_cursors_cell_set(Selection *s, int cell) {
 void view_cursors_scroll_to(Selection *s, size_t pos) {
 	View *view = s->view;
 	if (view->selection == s) {
-		view_draw(view);
+		vis_view_draw(vis_win_from_view(view)->vis, view);
 		while (pos < view->start && view_viewport_up(view, 1));
 		while (pos > view->end && view_viewport_down(view, 1));
 	}
@@ -1126,7 +1183,7 @@ void view_cursors_to(Selection *s, size_t pos) {
 
 		if (view->end == pos && view->lastline == view->bottomline) {
 			view->start += view->topline->len;
-			view_draw(view);
+			vis_view_draw(vis_win_from_view(view)->vis, view);
 		}
 
 		if (pos < view->start || pos > view->end) {
@@ -1136,12 +1193,12 @@ void view_cursors_to(Selection *s, size_t pos) {
 
 		if (pos <= view->start || pos > view->end) {
 			view->start = text_line_begin(view->text, pos);
-			view_draw(view);
+			vis_view_draw(vis_win_from_view(view)->vis, view);
 		}
 
 		if (pos <= view->start || pos > view->end) {
 			view->start = pos;
-			view_draw(view);
+			vis_view_draw(vis_win_from_view(view)->vis, view);
 		}
 	}
 
@@ -1171,7 +1228,7 @@ void view_selections_flip(Selection *s) {
 void view_selections_clear_all(View *view) {
 	for (Selection *s = view->selections; s; s = s->next)
 		view_selection_clear(s);
-	view_draw(view);
+	vis_view_draw(vis_win_from_view(view)->vis, view);
 }
 
 void view_selections_dispose_all(View *view) {
@@ -1183,7 +1240,7 @@ void view_selections_dispose_all(View *view) {
 		if (s != view->selection)
 			selection_free(s);
 	}
-	view_draw(view);
+	vis_view_draw(vis_win_from_view(view)->vis, view);
 }
 
 Filerange view_selections_get(Selection *s) {

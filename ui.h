@@ -85,25 +85,35 @@ typedef alignas(8) struct {
 #define VisCellStyleBGIndexSet(v, index) ((v)->bg_g = ((index >> 8u) & 0xFFu), ((v)->bg_b = (index) & 0xFFu))
 
 typedef alignas(8) struct {
+	u64 spill           : 1;  /* whether the cell data is a regular cell or a spilled cell */
+	u64 width           : 2;  /* width in terminal columns */
+	u64 file_byte_count : 10; /* number of bytes in underlying text */
+	u64 opaque_bytes    : 51; /* the last 51 bytes of a VisCellRegularData or a VisCellSpilledData */
+} VisCellOpaqueData;
+
+typedef alignas(8) struct {
+	u16 spill           : 1;  /* whether the cell data is here or in the spill arena */
+	u16 width           : 2;  /* width in terminal columns */
 	u16 file_byte_count : 10; /* number of bytes in underlying text */
 	u16 data_length     : 3;  /* length of data field */
-	u16 width           : 2;  /* width in terminal columns */
-	u16 multi_codepoint : 1;  /* whether the cell data needs a lookup in the string table */
-
 	/* utf-8 encoded character displayed in this cell, not 0 terminated.
 	 * may not match the underlying text, eg tabs get replaced with ' ' */
 	u8  data[6];
-} VisCellData;
+} VisCellNormalData;
+
+typedef alignas(8) struct {
+	u64 spill           : 1;  /* whether the cell data is here or in the spill arena */
+	u64 width           : 2;  /* width in terminal columns */
+	u64 file_byte_count : 10; /* number of bytes in underlying text */
+	u64 data_length     : 19; /* length in spill arena */
+	u64 offset          : 32; /* offset into spill arena */
+} VisCellSpilledData;
 
 typedef alignas(16) struct {
-	u16 file_byte_count : 10; /* number of bytes in underlying text */
-	u16 data_length     : 3;  /* length of data field */
-	u16 width           : 2;  /* width in terminal columns */
-	u16 multi_codepoint : 1;  /* whether the cell data needs a lookup in the string table */
-
-	/* utf-8 encoded character displayed in this cell, not 0 terminated.
-	 * may not match the underlying text, eg tabs get replaced with ' ' */
-	u8  data[6];
+	u64 spill           : 1;  /* whether the cell data is here or in the spill arena */
+	u64 width           : 2;  /* width in terminal columns */
+	u64 file_byte_count : 10; /* number of bytes in underlying text */
+	u64 opaque_bytes    : 51; /* either the last 51 bytes of a VisCellRegularData or a VisCellSpilledData */
 
 	VisCellStyle style;
 } VisCell;
@@ -111,10 +121,10 @@ typedef alignas(16) struct {
 #define VisCellInvalid(c) ((c).file_byte_count == 0x3FF)
 
 typedef struct {
-	VisCellData  *cells;
-	VisCellStyle *styles;
-	u8           *dirty_cell_bits;
-	u64           size;
+	VisCellOpaqueData *cells;
+	VisCellStyle      *styles;
+	u8                *dirty_cell_bits;
+	u64                size;
 } VisCellBuffer;
 
 typedef struct {
@@ -135,6 +145,24 @@ typedef struct {
 	bool flush_terminal;
 } VisVT100UI;
 
+typedef struct {
+	u64 hash;          /* full string hash */
+	u32 offset;        /* offset into string arena */
+	s32 string_length; /* length of data in string arena */
+} VisUISpillPoolBucket;
+
+typedef struct {
+	u8  *arena;
+	u32  arena_length;
+	u32  arena_position;
+
+	VisUISpillPoolBucket *hash_table;
+	u32                   hash_table_length;
+	u32                   hash_table_filled;
+
+	bool needs_compaction;
+} VisUISpillPool;
+
 // TODO(rnp): flatten UI into vis, only one exists and it must be in a vis context
 typedef struct {
 	TermKey termkey;           /* libtermkey instance to handle keyboard input (stdin or /dev/tty) */
@@ -152,6 +180,8 @@ typedef struct {
 #else
 	VisVT100UI  vt100;
 #endif
+
+	VisUISpillPool spill_pool;
 
 	// static_assert(S16_MAX <= UI_MAX_WIDTH)
 	char info[UI_MAX_WIDTH];   /* info message displayed at the bottom of the screen */

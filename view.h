@@ -127,7 +127,7 @@ VIS_INTERNAL bool view_resize(View*, int width, int height);
  * @defgroup view_draw View Drawing
  * @{
  */
-VIS_INTERNAL void view_draw(View*);
+VIS_INTERNAL void vis_view_draw(Vis*, View*);
 VIS_INTERNAL bool view_update(View*);
 
 /**
@@ -348,7 +348,7 @@ VIS_INTERNAL void win_options_set(struct Win *, enum UiOption);
 VIS_INTERNAL bool view_breakat_set(View*, str8 breakat);
 
 /** Set how many spaces are used to display a tab `\t` character. */
-VIS_INTERNAL void view_tabwidth_set(View*, int tabwidth);
+VIS_INTERNAL void vis_view_tabwidth_set(Vis*, View*, int tabwidth);
 /** Apply a style to a text range. */
 VIS_INTERNAL void vis_win_style(struct Win*, u64 start, u64 end, u16 style_id);
 

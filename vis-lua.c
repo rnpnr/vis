@@ -2200,7 +2200,7 @@ static int window_status(lua_State *L)
  */
 static int window_draw(lua_State *L) {
 	Win *win = obj_ref_check(L, 1, VIS_LUA_TYPE_WINDOW);
-	view_draw(&win->view);
+	vis_view_draw(win->vis, &win->view);
 	return 0;
 }
 

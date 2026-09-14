@@ -1,5 +1,8 @@
 #include "util.h"
 
+#define GRAPHEME_EXPORT VIS_INTERNAL
+#include "external/libgrapheme.c"
+
 #define TERMKEY_EXPORT VIS_INTERNAL
 #include "external/termkey.c"
 
@@ -432,7 +435,7 @@ void vis_window_prev(Vis *vis) {
 
 void vis_draw(Vis *vis) {
 	for (Win *win = vis->windows; win; win = win->next)
-		view_draw(&win->view);
+		vis_view_draw(vis, &win->view);
 }
 
 VIS_INTERNAL void

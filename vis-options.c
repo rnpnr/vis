@@ -240,7 +240,7 @@ vis_option_set(Vis *vis, Win *win, VisOption *option, VisValue value, bool toggl
 	case OPTION_IGNORECASE:{       vis->ignorecase = toggle ? !vis->ignorecase : value.u.boolean;       }break;
 	case OPTION_NUMBER_WIDTH:{     win->min_sidebar_width = MAX(0, value.u.integer);                    }break;
 	case OPTION_SHELL:{            vis_shell_set(vis, value.u.string);                                  }break;
-	case OPTION_TABWIDTH:{         view_tabwidth_set(&win->view, value.u.integer);                      }break;
+	case OPTION_TABWIDTH:{         vis_view_tabwidth_set(vis, &win->view, value.u.integer);             }break;
 	case OPTION_WRAP_COLUMN:{      win->view.wrapcolumn = MAX(0, value.u.integer);                      }break;
 
 	case OPTION_CURSOR_LINE:

@@ -353,7 +353,7 @@ static KEY_ACTION_FN(ka_selections_align_indent)
 		free(buf);
 	}
 
-	view_draw(view);
+	vis_view_draw(vis, view);
 	return keys;
 }
 

@@ -68,6 +68,16 @@ memory_scan_forward(const void *memory, uint8_t byte, ptrdiff_t n)
 	return result;
 }
 
+static bool
+memory_equal(void *restrict left, void *restrict right, u64 n)
+{
+	u8 *a = left, *b = right;
+	bool result = true;
+	for (; result && n; n--)
+		result &= *a++ == *b++;
+	return result;
+}
+
 static void
 memory_copy(void *restrict dest, void *restrict src, u64 n)
 {

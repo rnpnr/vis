@@ -18,7 +18,7 @@ vis_cell_buffer_resize(VisCellBuffer *cb, u32 width, u32 height)
 	// NOTE(rnp): extra space for dirty cell array, will generally just land in padding. Has
 	// a minimum size to ensure we can compute dirty cells with SIMD without a cleanup loop.
 	u64 bits_size     = height * width / 8 + 1;
-	u64 styles_offset = round_up_to(width * height * sizeof(VisCellData), 64);
+	u64 styles_offset = round_up_to(width * height * sizeof(VisCellOpaqueData), 64);
 	u64 bits_offset   = styles_offset + round_up_to(width * height * sizeof(VisCellStyle), 64);
 
 	u64 page_size = sysconf(_SC_PAGE_SIZE);
@@ -38,47 +38,166 @@ vis_cell_buffer_resize(VisCellBuffer *cb, u32 width, u32 height)
 	return result;
 }
 
-VIS_INTERNAL VisCell
-vis_cell_from_string(str8 *text)
+VIS_INTERNAL void
+vis_ui_pool_arena_grow(Vis *vis, VisUISpillPool *pool)
 {
-	VisCell   result  = {0};
-	mbstate_t mbstate = {0};
-	wchar_t   wchar   = 0;
+	u64 page_size = sysconf(_SC_PAGE_SIZE);
+	u32 new_size  = Max(2 * pool->arena_length, page_size);
+	u8 *new_arena = mmap(0, new_size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+	if unlikely((void *)new_arena == MAP_FAILED)
+		vis_oom(vis);
 
-	u64 parsed = mbrtowc(&wchar, (char *)text->data, text->length, &mbstate);
-	switch (parsed) {
-	default:{
-		assert(parsed <= countof(result.data));
-		for (u64 i = 0; i < parsed; i++)
-			result.data[i] = text->data[i];
-		result.file_byte_count = parsed;
-		result.data_length     = parsed;
+	for (u64 i = 0; i < pool->arena_length / 8; i++)
+		((u64 *)new_arena)[i] = ((u64 *)pool->arena)[i];
 
-		s32 width = wcwidth(wchar);
-		if (width == -1) width = 1;
-		result.width = width;
-	}break;
+	if (pool->arena)
+		munmap(pool->arena, pool->arena_length);
+	pool->arena        = new_arena;
+	pool->arena_length = new_size;
 
-	case 0:{
-		result = (VisCell){.data = {0}, .data_length = 1, .file_byte_count = 1, .width = 2};
-	}break;
+	// NOTE(rnp): any time the arena resizes and is larger than 1MB we flag a
+	// full clear for compaction, it is unlikely 1MB of text is ever visible
+	// at once so a large amount of existing text is probably unused
+	if (pool->arena_length >= 1024 * 1024)
+		pool->needs_compaction = true;
+}
 
-	case (u64)-1:{
-		// NOTE(rnp): invalid sequence
-		for (parsed = 1; parsed < text->length && !ISUTF8(text->data[parsed]); parsed++);
-		result = (VisCell){.data = {0xEF, 0xBF, 0xBD}, .data_length = 3,
-		                   .file_byte_count = parsed, .width = 1};
-	}break;
+VIS_INTERNAL void
+vis_ui_spill_pool_resize_hash_table(Vis *vis, VisUISpillPool *pool)
+{
+	u64 page_size = sysconf(_SC_PAGE_SIZE);
+	u32 new_bucket_count = Max(2 * pool->hash_table_length, page_size / sizeof(*pool->hash_table));
 
-	case (u64)-2:{
-		// NOTE(rnp): partial sequence
-		result.file_byte_count = -1;
-	}break;
+	u64 size = (u64)new_bucket_count * sizeof(*pool->hash_table);
+	VisUISpillPoolBucket *new_ht = mmap(0, size, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, 0);
+	if unlikely((void *)new_ht == MAP_FAILED)
+		vis_oom(vis);
+
+	u32 mask = new_bucket_count - 1;
+	for (u32 bucket = 0; bucket < pool->hash_table_length; bucket++) {
+		if (pool->hash_table[bucket].string_length > 0) {
+			// NOTE(rnp): we already know all strings in the hash table are unique
+			// we don't need to check again here
+			u32 new_bucket = pool->hash_table[bucket].hash;
+			while (new_ht[new_bucket & mask].string_length > 0) new_bucket++;
+			new_ht[new_bucket & mask] = pool->hash_table[bucket];
+		}
 	}
 
-	if (!VisCellInvalid(result))
-		*text = str8_skip(*text, result.file_byte_count);
+	if (pool->hash_table)
+		munmap(pool->hash_table, pool->hash_table_length * sizeof(*pool->hash_table));
 
+	pool->hash_table        = new_ht;
+	pool->hash_table_length = new_bucket_count;
+}
+
+VIS_INTERNAL u32
+vis_ui_spill_pool_intern_string(Vis *vis, VisUISpillPool *pool, str8 text)
+{
+	// NOTE(rnp): resize hash_table when necessary, `>=` covers 0 initialized table as well
+	if unlikely(pool->hash_table_filled >= 0.7f * pool->hash_table_length)
+		vis_ui_spill_pool_resize_hash_table(vis, pool);
+
+	u32 result = 0;
+
+	//////////////////////////
+	// NOTE(rnp): hash string
+	u64 hash = 0x3243f6a8885a308d;
+	for (s32 off = 0; off < text.length; off++) {
+		hash ^= text.data[off] & 0xFF;
+		hash *= 1111111111111111111;
+	}
+
+	//////////////////////////
+	// NOTE(rnp): linear probe insertion
+	u64  mask  = (pool->hash_table_length - 1);
+	u64  index = hash & mask;
+	bool found = false;
+	while (pool->hash_table[index].string_length > 0) {
+		VisUISpillPoolBucket *b = pool->hash_table + index;
+		if (b->hash == hash && b->string_length == text.length) {
+			if (memory_equal(pool->arena + b->offset, text.data, text.length)) {
+				result = b->offset;
+				found  = true;
+				break;
+			}
+		}
+		index = (index + 1) & mask;
+	}
+
+	if (!found) {
+		if unlikely((u64)pool->arena_position + (u64)text.length > pool->arena_length)
+			vis_ui_pool_arena_grow(vis, pool);
+
+		VisUISpillPoolBucket *b = pool->hash_table + index;
+		b->hash          = hash;
+		b->string_length = text.length;
+		b->offset        = result = pool->arena_position;
+		memory_copy(pool->arena + pool->arena_position, text.data, text.length);
+		pool->arena_position += text.length;
+	}
+
+	return result;
+}
+
+VIS_INTERNAL VisCellOpaqueData
+vis_cell_data_from_string(Vis *vis, str8 text)
+{
+	// NOTE(rnp): this is full of dumb stuff to be c standard compliant.
+	// a competent compiler should optimize it all away.
+
+	VisCellOpaqueData result = {.spill = text.length > 6};
+
+	u64 opaque_data = 0;
+	if (result.spill) {
+		VisCellSpilledData c = {0};
+		c.data_length = text.length;
+		c.offset      = vis_ui_spill_pool_intern_string(vis, &vis->ui.spill_pool, text);
+		memory_copy(&opaque_data, &c, sizeof(opaque_data));
+	} else {
+		VisCellNormalData c = {0};
+		c.data_length = text.length;
+		memory_copy(c.data, text.data, text.length);
+		memory_copy(&opaque_data, &c, sizeof(opaque_data));
+	}
+
+	s32 width  = 0;
+	s32 offset = 0;
+	while (offset < text.length) {
+		u32 cp;
+		u64 decoded = grapheme_decode_utf8((char *)text.data + offset, text.length - offset, &cp);
+		assert(cp != GRAPHEME_INVALID_CODEPOINT);
+		width = Max(width, wcwidth(cp));
+		offset += decoded;
+	}
+	result.width = width;
+	result.file_byte_count = text.length;
+
+	u64 packed_value;
+	memory_copy(&packed_value, &result, sizeof(packed_value));
+	packed_value |= opaque_data;
+	memory_copy(&result, &packed_value, sizeof(result));
+
+	return result;
+}
+
+VIS_INTERNAL str8
+vis_cell_str8(Ui *ui, VisCellOpaqueData cell)
+{
+	union {
+		VisCellOpaqueData  opaque;
+		VisCellNormalData  regular;
+		VisCellSpilledData spilled;
+	} u = {.opaque = cell};
+
+	str8 result;
+	if (cell.spill) {
+		result.data   = ui->spill_pool.arena + u.spilled.offset;
+		result.length = u.spilled.data_length;
+	} else {
+		result.data   = u.regular.data;
+		result.length = u.regular.data_length;
+	}
 	return result;
 }
 
@@ -312,13 +431,14 @@ ui_draw_string(Ui *tui, int x, int y, const char *str, uint16_t style_id)
 		s64 length = next - str;
 		if (length <= 0) break;
 
-		VisCellData  *data  = tui->cell_buffer.cells  + (y * tui->width) + x;
-		VisCellStyle *style = tui->cell_buffer.styles + (y * tui->width) + x++;
+		VisCellNormalData *data  = (VisCellNormalData *)tui->cell_buffer.cells  + (y * tui->width) + x;
+		VisCellStyle      *style = tui->cell_buffer.styles + (y * tui->width) + x++;
 
 		*style = vis_cell_style_merge(default_style, tui->styles[style_id]);
 
 		length = MIN(length, (s64)countof(data->data));
 		memory_copy(data->data, (void *)str, length);
+		data->spill           = 0;
 		data->data_length     = length;
 		data->width           = 1;
 		data->file_byte_count = 0;
@@ -374,8 +494,8 @@ static void ui_window_draw(Win *win) {
 
 	// NOTE(rnp) 10 digits in U32_MAX, 1 space, 1 for 0 termination
 	char sidebar_buffer[12];
-	VisCellData  *cells  = ui->cell_buffer.cells  + y * ui->width;
-	VisCellStyle *styles = ui->cell_buffer.styles + y * ui->width;
+	VisCellNormalData *cells  = (VisCellNormalData *)ui->cell_buffer.cells  + y * ui->width;
+	VisCellStyle      *styles = ui->cell_buffer.styles + y * ui->width;
 	for (Line *l = view->topline; l; l = l->next, y++) {
 		if (sidebar_width) {
 			s32 line_number = l->lineno;
@@ -393,8 +513,8 @@ static void ui_window_draw(Win *win) {
 			if (sidebar_buffer[0] == 0) padding = sidebar_width;
 
 			u16 style_id = (l->lineno == cursor_lineno) ? UI_STYLE_LINENUMBER_CURSOR : UI_STYLE_LINENUMBER;
-			VisCellData  cd    = {.data = {' '}, .data_length = 1, .width = 1};
-			VisCellStyle style = vis_cell_style_merge(ui->styles[UI_STYLE_DEFAULT], ui->styles[style_id]);
+			VisCellNormalData cd    = {.data = {' '}, .data_length = 1, .width = 1};
+			VisCellStyle      style = vis_cell_style_merge(ui->styles[UI_STYLE_DEFAULT], ui->styles[style_id]);
 			for (s32 xi = 0; xi < padding; xi++) {
 				cells[x + xi]  = cd;
 				styles[x + xi] = style;
@@ -403,7 +523,7 @@ static void ui_window_draw(Win *win) {
 			prev_lineno = l->lineno;
 		}
 		for (u32 vx = 0; vx < view_width; vx++) {
-			memory_copy(cells + x + sidebar_width + vx, l->cells + vx, sizeof(VisCellData));
+			memory_copy(cells + x + sidebar_width + vx, l->cells + vx, sizeof(*cells));
 			styles[x + sidebar_width + vx] = l->cells[vx].style;
 		}
 		cells  += ui->width;
@@ -448,11 +568,11 @@ ui_arrange(Vis *vis, enum UiLayout layout)
 			ui_window_move(win, x, y);
 			x += w;
 			if (n) {
-				VisCellData  cd    = {.data = {'|'}, .data_length = 1, .width = 1};
-				VisCellStyle style = vis_cell_style_merge(tui->styles[UI_STYLE_DEFAULT], tui->styles[UI_STYLE_SEPARATOR]);
+				VisCellNormalData cd    = {.data = {'|'}, .data_length = 1, .width = 1};
+				VisCellStyle      style = vis_cell_style_merge(tui->styles[UI_STYLE_DEFAULT], tui->styles[UI_STYLE_SEPARATOR]);
 
-				VisCellData  *cells  = tui->cell_buffer.cells;
-				VisCellStyle *styles = tui->cell_buffer.styles;
+				VisCellNormalData *cells  = (VisCellNormalData *)tui->cell_buffer.cells;
+				VisCellStyle      *styles = tui->cell_buffer.styles;
 				for (int i = 0; i < max_height; i++, cells += tui->width, styles += tui->width) {
 					cells[x]  = cd;
 					styles[x] = style;
@@ -478,6 +598,22 @@ ui_draw(Vis *vis)
 {
 	Ui *tui = &vis->ui;
 	ui_arrange(vis, vis->ui.layout);
+
+	if unlikely(tui->spill_pool.needs_compaction) {
+		// TODO(rnp): this should just set a dirty marker on all the views and they
+		// should all get redrawn in one bulk update. unfortunately random unrelated code
+		// relies on calling vis_view_draw() whenever it feels because it requires the side
+		// effects that happen in that function. once that gets cleanup this can be done
+		// in a more coherent manner
+
+		munmap(tui->spill_pool.arena, tui->spill_pool.arena_length);
+		munmap(tui->spill_pool.hash_table, sizeof(*tui->spill_pool.hash_table) * tui->spill_pool.hash_table_length);
+		zero_struct(&tui->spill_pool);
+
+		for (Win *win = vis->windows; win; win = win->next)
+			vis_view_draw(vis, &win->view);
+	}
+
 	for (Win *win = vis->windows; win; win = win->next)
 		ui_window_draw(win);
 
@@ -594,11 +730,11 @@ VIS_INTERNAL void
 ui_info_show(Ui *ui, const char *msg, va_list ap)
 {
 	// NOTE(rnp): clear info line cells
-	VisCellData  cd    = {.data = {' '}, .data_length = 1, .width = 1};
-	VisCellStyle style = vis_cell_style_merge(ui->styles[UI_STYLE_DEFAULT], ui->styles[UI_STYLE_INFO]);
+	VisCellNormalData cd    = {.data = {' '}, .data_length = 1, .width = 1};
+	VisCellStyle      style = vis_cell_style_merge(ui->styles[UI_STYLE_DEFAULT], ui->styles[UI_STYLE_INFO]);
 
-	VisCellData  *cells  = ui->cell_buffer.cells  + (ui->height - 1) * ui->width;
-	VisCellStyle *styles = ui->cell_buffer.styles + (ui->height - 1) * ui->width;
+	VisCellNormalData *cells  = (VisCellNormalData *)ui->cell_buffer.cells  + (ui->height - 1) * ui->width;
+	VisCellStyle      *styles = ui->cell_buffer.styles + (ui->height - 1) * ui->width;
 	for (s32 x = 0; x < ui->width; x++) {
 		cells[x]  = cd;
 		styles[x] = style;
